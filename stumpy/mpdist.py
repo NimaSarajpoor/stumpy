@@ -148,68 +148,71 @@ def mpdist(
 
     The MPdist distance measure considers two time series to be similar if they share
     many subsequences, regardless of the order of matching subsequences. MPdist
-    concatenates the output of an AB-join and a BA-join and returns the `k`th smallest
-    value as the reported distance. Note that MPdist is a measure and not a metric.
-    Therefore, it does not obey the triangular inequality but the method is highly
-    scalable.
+    concatenates the output of an AB-join and a BA-join and returns the ``k``-th
+    smallest value as the reported distance. Note that MPdist is a measure and not a
+    metric. Therefore, it does not obey the triangular inequality but the method is
+    highly scalable.
 
     Parameters
     ----------
     T_A : numpy.ndarray
-        The first time series or sequence for which to compute the matrix profile
+        The first time series or sequence for which to compute the matrix profile.
 
     T_B : numpy.ndarray
-        The second time series or sequence for which to compute the matrix profile
+        The second time series or sequence for which to compute the matrix profile.
 
     m : int
-        Window size
+        Window size.
 
     percentage : float, default 0.05
-        The percentage of distances that will be used to report `mpdist`. The value
-        is between 0.0 and 1.0.
+        The percentage of distances that will be used to report ``mpdist``. The value
+        is between ``0.0`` and ``1.0``.
 
     k : int
-        Specify the `k`th value in the concatenated matrix profiles to return. When `k`
-        is not `None`, then the `percentage` parameter is ignored.
+        Specify the ``k``-th value in the concatenated matrix profiles to return. When
+        ``k`` is not ``None``, then the ``percentage`` parameter is ignored.
 
     normalize : bool, default True
-        When set to `True`, this z-normalizes subsequences prior to computing distances.
-        Otherwise, this function gets re-routed to its complementary non-normalized
-        equivalent set in the `@core.non_normalized` function decorator.
+        When set to ``True``, this z-normalizes subsequences prior to computing
+        distances. Otherwise, this function gets re-routed to its complementary
+        non-normalized equivalent set in the ``@core.non_normalized`` function
+        decorator.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance. This parameter is
-        ignored when `normalize == True`.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with ``p`` being ``1`` or ``2``, which correspond to the
+        Manhattan distance and the Euclidean distance, respectively. This parameter is
+        ignored when ``normalize == True``.
 
     T_A_subseq_isconstant : numpy.ndarray or function, default None
-        A boolean array that indicates whether a subsequence in `T_A` is constant
-        (True). Alternatively, a custom, user-defined function that returns a
-        boolean array that indicates whether a subsequence in `T_A` is constant
-        (True). The function must only take two arguments, `a`, a 1-D array,
-        and `w`, the window size, while additional arguments may be specified
-        by currying the user-defined function using `functools.partial`. Any
-        subsequence with at least one np.nan/np.inf will automatically have its
-        corresponding value set to False in this boolean array.
+        A boolean array that indicates whether a subsequence in ``T_A`` is constant
+        (``True``). Alternatively, a custom, user-defined function that returns a
+        boolean array that indicates whether a subsequence in ``T_A`` is constant
+        (``True``). The function must only take two arguments, ``a``, a 1-D array,
+        and ``w``, the window size, while additional arguments may be specified
+        by currying the user-defined function using ``functools.partial``. Any
+        subsequence with at least one ``np.nan``/``np.inf`` will automatically have its
+        corresponding value set to ``False`` in this boolean array.
 
     T_B_subseq_isconstant : numpy.ndarray or function, default None
-        A boolean array that indicates whether a subsequence in `T_B` is constant
-        (True). Alternatively, a custom, user-defined function that returns a
-        boolean array that indicates whether a subsequence in `T_B` is constant
-        (True). The function must only take two arguments, `a`, a 1-D array,
-        and `w`, the window size, while additional arguments may be specified
-        by currying the user-defined function using `functools.partial`. Any
-        subsequence with at least one np.nan/np.inf will automatically have its
-        corresponding value set to False in this boolean array.
+        A boolean array that indicates whether a subsequence in ``T_B`` is constant
+        (``True``). Alternatively, a custom, user-defined function that returns a
+        boolean array that indicates whether a subsequence in ``T_B`` is constant
+        (``True``). The function must only take two arguments, ``a``, a 1-D array,
+        and ``w``, the window size, while additional arguments may be specified
+        by currying the user-defined function using ``functools.partial``. Any
+        subsequence with at least one ``np.nan``/``np.inf`` will automatically have its
+        corresponding value set to ``False`` in this boolean array.
 
     Returns
     -------
     MPdist : float
-        The matrix profile distance
+        The matrix profile distance.
 
     See Also
     --------
     mpdisted : Compute the z-normalized matrix profile distance (MPdist) measure
-        between any two time series with a distributed dask cluster
+        between any two time series with a ``dask``/``ray`` cluster
     gpu_mpdist : Compute the z-normalized matrix profile distance (MPdist) measure
         between any two time series with one or more GPU devices
 
@@ -263,72 +266,75 @@ def mpdisted(
 ):
     """
     Compute the z-normalized matrix profile distance (MPdist) measure between any two
-    time series with a distributed dask/ray cluster
+    time series with a ``dask``/``ray`` cluster
 
     The MPdist distance measure considers two time series to be similar if they share
     many subsequences, regardless of the order of matching subsequences. MPdist
-    concatenates the output of an AB-join and a BA-join and returns the `k`th smallest
-    value as the reported distance. Note that MPdist is a measure and not a metric.
-    Therefore, it does not obey the triangular inequality but the method is highly
-    scalable.
+    concatenates the output of an AB-join and a BA-join and returns the ``k``-th
+    smallest value as the reported distance. Note that MPdist is a measure and not a
+    metric. Therefore, it does not obey the triangular inequality but the method is
+    highly scalable.
 
     Parameters
     ----------
     client : client
-        A Dask or Ray Distributed client. Setting up a distributed cluster is beyond
-        the scope of this library. Please refer to the Dask or Ray Distributed
-        documentation.
+        A ``dask``/``ray`` client. Setting up a ``dask``/``ray`` cluster is beyond
+        the scope of this library. Please refer to the ``dask``/``ray`` documentation.
 
     T_A : numpy.ndarray
-        The first time series or sequence for which to compute the matrix profile
+        The first time series or sequence for which to compute the matrix profile.
 
     T_B : numpy.ndarray
-        The second time series or sequence for which to compute the matrix profile
+        The second time series or sequence for which to compute the matrix profile.
 
     m : int
-        Window size
+        Window size.
 
     percentage : float, default 0.05
-        The percentage of distances that will be used to report `mpdist`. The value
-        is between 0.0 and 1.0. This parameter is ignored when `k` is not `None`.
+        The percentage of distances that will be used to report ``mpdist``. The value
+        is between ``0.0`` and ``1.0``. This parameter is ignored when ``k`` is not
+        ``None``.
 
     k : int
-        Specify the `k`th value in the concatenated matrix profiles to return. When `k`
-        is not `None`, then the `percentage` parameter is ignored.
+        Specify the ``k``-th value in the concatenated matrix profiles to return. When
+        ``k`` is not ``None``, then the ``percentage`` parameter is ignored.
 
     normalize : bool, default True
-        When set to `True`, this z-normalizes subsequences prior to computing distances.
-        Otherwise, this function gets re-routed to its complementary non-normalized
-        equivalent set in the `@core.non_normalized` function decorator.
+        When set to ``True``, this z-normalizes subsequences prior to computing
+        distances. Otherwise, this function gets re-routed to its complementary
+        non-normalized equivalent set in the ``@core.non_normalized`` function
+        decorator.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance. This parameter is
-        ignored when `normalize == True`.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with ``p`` being ``1`` or ``2``, which correspond to the
+        Manhattan distance and the Euclidean distance, respectively. This parameter is
+        ignored when ``normalize == True``.
 
     T_A_subseq_isconstant : numpy.ndarray or function, default None
-        A boolean array that indicates whether a subsequence in `T_A` is constant
-        (True). Alternatively, a custom, user-defined function that returns a
-        boolean array that indicates whether a subsequence in `T_A` is constant
-        (True). The function must only take two arguments, `a`, a 1-D array,
-        and `w`, the window size, while additional arguments may be specified
-        by currying the user-defined function using `functools.partial`. Any
-        subsequence with at least one np.nan/np.inf will automatically have its
-        corresponding value set to False in this boolean array.
+        A boolean array that indicates whether a subsequence in ``T_A`` is constant
+        (``True``). Alternatively, a custom, user-defined function that returns a
+        boolean array that indicates whether a subsequence in ``T_A`` is constant
+        (``True``). The function must only take two arguments, ``a``, a 1-D array,
+        and ``w``, the window size, while additional arguments may be specified
+        by currying the user-defined function using ``functools.partial``. Any
+        subsequence with at least one ``np.nan``/``np.inf`` will automatically have its
+        corresponding value set to ``False`` in this boolean array.
 
     T_B_subseq_isconstant : numpy.ndarray or function, default None
-        A boolean array that indicates whether a subsequence in `T_B` is constant
-        (True). Alternatively, a custom, user-defined function that returns a
-        boolean array that indicates whether a subsequence in `T_B` is constant
-        (True). The function must only take two arguments, `a`, a 1-D array,
-        and `w`, the window size, while additional arguments may be specified
-        by currying the user-defined function using `functools.partial`. Any
-        subsequence with at least one np.nan/np.inf will automatically have its
-        corresponding value set to False in this boolean array.
+        A boolean array that indicates whether a subsequence in ``T_B`` is constant
+        (``True``). Alternatively, a custom, user-defined function that returns a
+        boolean array that indicates whether a subsequence in ``T_B`` is constant
+        (``True``). The function must only take two arguments, ``a``, a 1-D array,
+        and ``w``, the window size, while additional arguments may be specified
+        by currying the user-defined function using ``functools.partial``. Any
+        subsequence with at least one ``np.nan``/``np.inf`` will automatically have its
+        corresponding value set to ``False`` in this boolean array.
 
     Returns
     -------
     MPdist : float
-        The matrix profile distance
+        The matrix profile distance.
 
     See Also
     --------
@@ -350,13 +356,25 @@ def mpdisted(
     >>> import numpy as np
     >>> from dask.distributed import Client
     >>> if __name__ == "__main__":
-    ...     with Client() as dask_client:
-    ...         stumpy.mpdisted(
+    >>>     with Client() as dask_client:
+    >>>         stumpy.mpdisted(
     ...             dask_client,
     ...             np.array([-11.1, 23.4, 79.5, 1001.0]),
     ...             np.array([584., -11., 23., 79., 1001., 0., -19.]),
     ...             m=3)
     0.00019935236191097894
+
+    Alternatively, you can also use `ray`
+
+    >>> import ray
+    >>> if __name__ == "__main__":
+    >>>     ray.init()
+    >>>     stumpy.mpdisted(
+    ...         ray,
+    ...         np.array([-11.1, 23.4, 79.5, 1001.0]),
+    ...         np.array([584., -11., 23., 79., 1001., 0., -19.]),
+    ...         m=3)
+    >>>     ray.shutdown()
     """
     partial_mp_func = functools.partial(
         stumped,

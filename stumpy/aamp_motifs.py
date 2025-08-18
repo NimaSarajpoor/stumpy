@@ -133,6 +133,8 @@ def _aamp_motifs(
             query_matches = np.array([[np.nan, candidate_idx]])
 
         for idx in query_matches[:, 1]:
+            # Since the query motif is also included as the first item in the list of
+            # `query_matches`, the exclusion zone is also applied to the query motif!
             core.apply_exclusion_zone(P, int(idx), excl_zone, np.inf)
 
         candidate_idx = np.argmin(P[-1])
@@ -268,7 +270,7 @@ def aamp_motifs(
     m = T.shape[-1] - P.shape[-1] + 1
     excl_zone = int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))
     if max_matches is None:  # pragma: no cover
-        max_matches = np.inf
+        max_matches = P.shape[-1]
     if cutoff is None:  # pragma: no cover
         P_copy = P.copy().astype(np.float64)
         P_copy[np.isinf(P_copy)] = np.nan

@@ -4,6 +4,7 @@ import naive
 import numpy as np
 import numpy.testing as npt
 import pandas as pd
+import polars as pl
 import pytest
 from dask.distributed import Client, LocalCluster
 
@@ -12,7 +13,12 @@ from stumpy import config, stumped
 
 @pytest.fixture(scope="module")
 def dask_cluster():
-    cluster = LocalCluster(n_workers=2, threads_per_worker=2)
+    cluster = LocalCluster(
+        n_workers=2,
+        threads_per_worker=2,
+        dashboard_address=None,
+        worker_dashboard_address=None,
+    )
     yield cluster
     cluster.close()
 
@@ -67,6 +73,10 @@ def test_stumped_self_join_df(T_A, T_B, dask_cluster):
         ref_mp = naive.stump(T_B, m, exclusion_zone=zone)
         comp_mp = stumped(dask_client, pd.Series(T_B), m, ignore_trivial=True)
         naive.replace_inf(ref_mp)
+        naive.replace_inf(comp_mp)
+        npt.assert_almost_equal(ref_mp, comp_mp)
+
+        comp_mp = stumped(dask_client, pl.Series(T_B), m, ignore_trivial=True)
         naive.replace_inf(comp_mp)
         npt.assert_almost_equal(ref_mp, comp_mp)
 

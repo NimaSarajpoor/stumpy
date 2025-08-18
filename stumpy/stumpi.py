@@ -17,7 +17,7 @@ from .aampi import aampi
 )
 class stumpi:
     """
-    Compute an incremental z-normalized matrix profile for streaming data
+    A class to compute an incremental z-normalized matrix profile for streaming data
 
     This is based on the on-line STOMPI and STAMPI algorithms.
 
@@ -25,74 +25,75 @@ class stumpi:
     ----------
     T : numpy.ndarray
         The time series or sequence for which the matrix profile and matrix profile
-        indices will be returned
+        indices will be returned.
 
     m : int
-        Window size
+        Window size.
 
     egress : bool, default True
-        If set to `True`, the oldest data point in the time series is removed and
+        If set to ``True``, the oldest data point in the time series is removed and
         the time series length remains constant rather than forever increasing
 
     normalize : bool, default True
-        When set to `True`, this z-normalizes subsequences prior to computing distances.
-        Otherwise, this class gets re-routed to its complementary non-normalized
-        equivalent set in the `@core.non_normalized` class decorator.
+        When set to ``True``, this z-normalizes subsequences prior to computing
+        distances. Otherwise, this class gets re-routed to its complementary
+        non-normalized equivalent set in the ``@core.non_normalized`` class decorator.
 
     p : float, default 2.0
         The p-norm to apply for computing the Minkowski distance. This parameter is
-        ignored when `normalize == True`.
+        ignored when ``normalize == True``.
 
     k : int, default 1
-        The number of top `k` smallest distances used to construct the matrix profile.
+        The number of top ``k`` smallest distances used to construct the matrix profile.
         Note that this will increase the total computational time and memory usage
-        when k > 1.
+        when ``k > 1``.
 
-    mp : numpy.ndarry, default None
+    mp : numpy.ndarray, default None
         A pre-computed matrix profile (and corresponding matrix profile indices).
-        This is a 2D array of shape `(len(T) - m + 1, 2 * k + 2)`, where the first `k`
-        columns are top-k matrix profile, and the next `k` columns are their
+        This is a 2D array of shape ``(len(T) - m + 1, 2 * k + 2)``, where the first
+        ``k`` columns are top-k matrix profile, and the next ``k`` columns are their
         corresponding indices. The last two columns correspond to the top-1 left and
-        top-1 right matrix profile indices. When None (default), this array is computed
-        internally using `stumpy.stump`.
+        top-1 right matrix profile indices. When ``None`` (default), this array is
+        computed internally using ``stumpy.stump``.
 
     T_subseq_isconstant_func : function, default None
         A custom, user-defined function that returns a boolean array that indicates
-        whether a subsequence in `T` is constant (True). The function must only take
-        two arguments, `a`, a 1-D array, and `w`, the window size, while additional
-        arguments may be specified by currying the user-defined function using
-        `functools.partial`. Any subsequence with at least one np.nan/np.inf will
-        automatically have its corresponding value set to False in this boolean array.
+        whether a subsequence in ``T`` is constant (``True``). The function must only
+        take two arguments, ``a``, a 1-D array, and ``w``, the window size, while
+        additional arguments may be specified by currying the user-defined function
+        using ``functools.partial``. Any subsequence with at least one
+        ``np.nan``/``np.inf`` will automatically have its corresponding value set to
+        ``False`` in this boolean array.
 
     Attributes
     ----------
     P_ : numpy.ndarray
-        The updated (top-k) matrix profile for `T`. When `k=1` (default), the first
-        (and only) column in this 2D array consists of the matrix profile. When
-        `k > 1`, the output has exactly `k` columns consisting of the top-k matrix
+        The updated (top-k) matrix profile for ``T``. When ``k = 1`` (default), the
+        first (and only) column in this 2D array consists of the matrix profile. When
+        ``k > 1``, the output has exactly ``k`` columns consisting of the top-k matrix
         profile.
 
     I_ : numpy.ndarray
-        The updated (top-k) matrix profile indices for `T`. When `k=1` (default),
+        The updated (top-k) matrix profile indices for ``T``. When ``k = 1`` (default),
         the first (and only) column in this 2D array consists of the matrix profile
-        indices. When `k > 1`, the output has exactly `k` columns consisting of the
+        indices. When ``k > 1``, the output has exactly ``k`` columns consisting of the
         top-k matrix profile indices.
 
     left_P_ : numpy.ndarray
-        The updated left (top-1) matrix profile for `T`
+        The updated left (top-1) matrix profile for ``T``.
 
     left_I_ : numpy.ndarray
-        The updated left (top-1) matrix profile indices for `T`
+        The updated left (top-1) matrix profile indices for ``T``.
 
     T_ : numpy.ndarray
         The updated time series or sequence for which the matrix profile and matrix
-        profile indices are computed
+        profile indices are computed.
 
     Methods
     -------
     update(t)
-        Append a single new data point, `t`, to the time series, `T`, and update the
-        matrix profile
+        Append a single new data point, ``t``, to the time series, ``T``, and update
+        the matrix profile.
 
     Notes
     -----
@@ -101,7 +102,7 @@ class stumpi:
 
     See Table V
 
-    Note that line 11 is missing an important `sqrt` operation!
+    Note that line 11 is missing an important ``sqrt`` operation!
 
     Examples
     --------
@@ -160,7 +161,7 @@ class stumpi:
             profile. Note that this will increase the total computational time and
             memory usage when `k > 1`.
 
-        mp : numpy.ndarry, default None
+        mp : numpy.ndarray, default None
             A pre-computed matrix profile (and corresponding matrix profile indices).
             This is a 2D array of shape `(len(T) - m + 1, 2 * k + 2)`, where the first
             `k` columns are top-k matrix profile, and the next `k` columns are their
@@ -178,7 +179,7 @@ class stumpi:
             array.
         """
         self._T = core._preprocess(T)
-        core.check_window_size(m, max_size=self._T.shape[-1])
+        core.check_window_size(m, max_size=self._T.shape[0])
         self._m = m
         self._k = k
 
@@ -216,7 +217,7 @@ class stumpi:
             2 * self._k + 2,
         ):  # pragma: no cover
             msg = (
-                f"The shape of `mp` must match ({len(T)-m+1}, {2 * k + 2}) but "
+                f"The shape of `mp` must match ({len(T) - m + 1}, {2 * k + 2}) but "
                 + f"found {mp.shape} instead."
             )
             raise ValueError(msg)
@@ -353,26 +354,9 @@ class stumpi:
         if np.any(~self._T_isfinite[-self._m :]):
             D[:] = np.inf
 
-        core.apply_exclusion_zone(D, D.shape[0] - 1, self._excl_zone, np.inf)
-
-        update_idx = np.argwhere(D < self._P[:, -1]).flatten()
-        for i in update_idx:
-            idx = np.searchsorted(self._P[i], D[i], side="right")
-            core._shift_insert_at_index(self._P[i], idx, D[i])
-            core._shift_insert_at_index(
-                self._I[i], idx, D.shape[0] + self._n_appended - 1
-            )
-            # D.shape[0] is base-1
-
-        # Calculate the (top-k) matrix profile values/indices for the last subsequence
-        # by using its corresponding distance profile `D`
-        self._P[-1] = np.inf
-        self._I[-1] = -1
-        for i, d in enumerate(D):
-            if d < self._P[-1, -1]:
-                idx = np.searchsorted(self._P[-1], d, side="right")
-                core._shift_insert_at_index(self._P[-1], idx, d)
-                core._shift_insert_at_index(self._I[-1], idx, i + self._n_appended)
+        core._update_incremental_PI(
+            D, self._P, self._I, self._excl_zone, n_appended=self._n_appended
+        )
 
         # All neighbors of the last subsequence are on its left. So, its (top-1)
         # matrix profile value/index and its left matrix profile value/index must
@@ -439,30 +423,18 @@ class stumpi:
         if np.any(~self._T_isfinite[-self._m :]):
             D[:] = np.inf
 
-        core.apply_exclusion_zone(D, D.shape[0] - 1, self._excl_zone, np.inf)
-
-        update_idx = np.argwhere(D[:l] < self._P[:l, -1]).flatten()
-        for i in update_idx:
-            idx = np.searchsorted(self._P[i], D[i], side="right")
-            core._shift_insert_at_index(self._P[i], idx, D[i])
-            core._shift_insert_at_index(self._I[i], idx, l)
-
-        # Calculating top-k matrix profile and (top-1) left matrix profile (and their
-        # corresponding indices) for new subsequence whose distance profile is `D`
         P_new = np.full(self._k, np.inf, dtype=np.float64)
         I_new = np.full(self._k, -1, dtype=np.int64)
-        for i, d in enumerate(D):
-            if d < P_new[-1]:  # maximum value in sorted array P_new
-                idx = np.searchsorted(P_new, d, side="right")
-                core._shift_insert_at_index(P_new, idx, d)
-                core._shift_insert_at_index(I_new, idx, i)
-
-        left_I_new = I_new[0]
-        left_P_new = P_new[0]
-
-        self._T = T_new
         self._P = np.append(self._P, P_new.reshape(1, -1), axis=0)
         self._I = np.append(self._I, I_new.reshape(1, -1), axis=0)
+
+        core._update_incremental_PI(D, self._P, self._I, self._excl_zone, n_appended=0)
+
+        left_I_new = self._I[-1, 0]
+        left_P_new = self._P[-1, 0]
+
+        self._T = T_new
+
         self._left_P = np.append(self._left_P, left_P_new)
         self._left_I = np.append(self._left_I, left_I_new)
         self._QT = QT_new

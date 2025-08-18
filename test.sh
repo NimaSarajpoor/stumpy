@@ -5,7 +5,6 @@ print_mode="verbose"
 custom_testfiles=()
 max_iter=10
 site_pkgs=$(python -c 'import site; print(site.getsitepackages()[0])')
-
 # Parse command line arguments
 for var in "$@"
 do
@@ -15,8 +14,16 @@ do
         test_mode="coverage"
     elif [[ $var == "notebooks" ]]; then
         test_mode="notebooks"
+    elif [[ $var == "gpu" ]] || [[ $var == "gpus" ]]; then
+        test_mode="gpu"
+    elif [[ $var == "show" ]]; then
+        test_mode="show"
+    elif [[ $var == "count" ]]; then
+        test_mode="count"
     elif [[ $var == "custom" ]]; then
         test_mode="custom"
+    elif [[ $var == "report" ]]; then
+        test_mode="report"
     elif [[ $var == "silent" || $var == "print" ]]; then
         print_mode="silent"
     elif [[ "$var" == *"test_"*".py"* ]]; then
@@ -47,14 +54,14 @@ check_errs()
 check_black()
 {
     echo "Checking Black Code Formatting"
-    black --check --exclude=".*\.ipynb"  --diff ./
+    black --check --exclude=".*\.ipynb" --extend-exclude=".venv" --diff ./
     check_errs $?
 }
 
 check_isort()
 {
     echo "Checking iSort Import Formatting"
-    isort --profile black --check-only ./
+    isort --profile black --skip .venv --check-only ./
     check_errs $?
 }
 
@@ -68,7 +75,7 @@ check_docstrings()
 check_flake()
 {
     echo "Checking Flake8 Style Guide Enforcement"
-    flake8 ./
+    flake8 --extend-exclude=.venv ./
     check_errs $?
 }
 
@@ -80,6 +87,30 @@ check_print()
             grep print */*.py
             exit 1
         fi
+    fi
+}
+
+check_fastmath()
+{
+    echo "Checking Missing fastmath flags in njit functions"
+    ./fastmath.py --check stumpy
+    check_errs $?
+
+    echo "Checking hardcoded fastmath flags in njit functions"
+    if [[ $(grep -n fastmath= stumpy/*py | grep -vE 'fastmath=config' | wc -l) -gt "0" ]]; then
+        grep -n fastmath= stumpy/*py | grep -vE 'fastmath=config'
+        echo "Found one or more \`@njit()\` functions with a hardcoded \`fastmath\` flag."
+        exit 1
+    fi
+}
+
+check_pkg_imports()
+{
+    echo "Checking Package Imports"
+    if [[ `grep '^from stumpy' stumpy/*py | wc -l` -gt "0" ]]; then
+        grep '^from stumpy' stumpy/*py
+        echo 'Error: please change "from stumpy" to "from ." '
+        exit 1
     fi
 }
 
@@ -95,6 +126,48 @@ check_naive()
             exit 1
         fi
     done
+}
+
+check_ray()
+{
+    if ! command -v ray &> /dev/null
+    then
+        echo "Ray Not Installed"
+    else
+        echo "Ray Installed"
+    fi
+}
+
+gen_ray_coveragerc()
+{
+    # Generate a .coveragerc_ray file that excludes Ray functions and tests
+    echo "[report]" > .coveragerc_ray
+    echo "; Regexes for lines to exclude from consideration" >> .coveragerc_ray
+    echo "exclude_also =" >> .coveragerc_ray
+    echo "    def .*_ray_*" >> .coveragerc_ray
+    echo "    def ,*_ray\(*" >> .coveragerc_ray
+    echo "    def ray_.*" >> .coveragerc_ray
+    echo "    def test_.*_ray*" >> .coveragerc_ray
+}
+
+set_ray_coveragerc()
+{
+    # If `ray` command is not found then generate a .coveragerc_ray file
+    if ! command -v ray &> /dev/null
+    then
+        echo "Ray Not Installed"
+        gen_ray_coveragerc
+        fcoveragerc="--rcfile=.coveragerc_ray"
+    else
+        echo "Ray Installed"
+        fcoveragerc=""
+    fi
+}
+
+show_coverage_report()
+{
+    set_ray_coveragerc
+    coverage report --show-missing --fail-under=100 --skip-covered --omit=fastmath.py,docstring.py,min_versions.py,ray_python_version.py $fcoveragerc
 }
 
 test_custom()
@@ -123,7 +196,7 @@ test_custom()
         for i in $(seq $max_iter)
         do
             echo "Custom Test: $i / $max_iter"
-            for testfile in "${custom_testfiles[@]}"
+            for testfile in "${custom_testfiles[@]}";
             do
                 pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
                 check_errs $?
@@ -137,11 +210,22 @@ test_custom()
 test_unit()
 {
     echo "Testing Numba JIT Compiled Functions"
-    for testfile in tests/test_*.py
-    do
-        pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
-        check_errs $?
-    done
+    SECONDS=0
+    if [[ ${#custom_testfiles[@]}  -eq "0" ]]; then
+        for testfile in tests/test_*.py
+        do
+            pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
+            check_errs $?
+        done
+    else
+        for testfile in "${custom_testfiles[@]}";
+        do
+            pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
+            check_errs $?
+        done
+    fi
+    duration=$SECONDS
+    echo "Elapsed Time: $((duration / 60)) minutes and $((duration % 60)) seconds" 
 }
 
 test_coverage()
@@ -156,18 +240,68 @@ test_coverage()
 
     echo "Testing Code Coverage"
     coverage erase
-    for testfile in tests/test_*.py
+
+    # We always attempt to test everything but we may ignore things (ray, helper scripts) when we generate the coverage report
+
+    SECONDS=0
+    if [[ ${#custom_testfiles[@]}  -eq "0" ]]; then
+        # Execute all tests
+        for testfile in tests/test_*.py;
+        do
+            coverage run --append --source=. -m pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
+            check_errs $?
+        done
+    else
+        # Execute custom tests
+        for testfile in "${custom_testfiles[@]}";
+        do
+            coverage run --append --source=. -m pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
+            check_errs $?
+        done
+    fi
+    duration=$SECONDS
+    echo "Elapsed Time: $((duration / 60)) minutes and $((duration % 60)) seconds"
+    show_coverage_report
+}
+
+test_gpu()
+{
+    echo "Testing Numba JIT CUDA GPU Compiled Functions"
+    #for testfile in tests/test_*gpu*.py tests/test_core.py tests/test_precision.py tests/test_non_normalized_decorator.py
+    for testfile in $(grep gpu tests/* | awk -v FS=':' '{print $1}' | uniq);
     do
-        coverage run --append --source=. -m pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
+        pytest -rsx -W ignore::RuntimeWarning -W ignore::DeprecationWarning -W ignore::UserWarning $testfile
         check_errs $?
     done
-    coverage report -m --fail-under=100 --skip-covered --omit=setup.py,docstring.py,min.py,stumpy/cache.py
+}
+
+show()
+{
+    echo "Current working directory: " `pwd`
+    echo "Black version: " `python -c 'exec("try:\n\timport black;\n\tprint(black.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "Flake8 version: " `python -c 'exec("try:\n\timport flake8;\n\tprint(flake8.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "Python version: " `python -c "import platform; print(platform.python_version())"`
+    echo "NumPy version: " `python -c 'exec("try:\n\timport numpy;\n\tprint(numpy.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "SciPy version: " `python -c 'exec("try:\n\timport scipy;\n\tprint(scipy.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "Numba version: " `python -c 'exec("try:\n\timport numba;\n\tprint(numba.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "Dask version: " `python -c 'exec("try:\n\timport dask;\n\tprint(dask.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "Distributed version: " `python -c 'exec("try:\n\timport distributed;\n\tprint(distributed.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    echo "PyTest version: " `python -c 'exec("try:\n\timport pytest;\n\tprint(pytest.__version__);\nexcept ModuleNotFoundError:\n\tprint(\"Module Not Found\");")'`
+    exit 0
 }
 
 check_links()
 {
     echo "Checking notebook links"
-    pytest --check-links docs/Tutorial_*.ipynb
+    export JUPYTER_PLATFORM_DIRS=1
+    jupyter --paths
+    pytest --check-links docs/Tutorial_*.ipynb notebooks/Tutorial_*.ipynb docs/*.md docs/*.rst  ./*.md ./*.rst
+}
+
+count()
+{
+    test_count=$(pytest --collect-only -q | sed '$d' | sed '$d' | wc -l | sed 's/ //g')
+    echo "Found $test_count Unit Tests"
 }
 
 clean_up()
@@ -175,7 +309,10 @@ clean_up()
     echo "Cleaning Up"
     rm -rf "dask-worker-space"
     rm -rf "stumpy/__pycache__/"
+    rm -rf "tests/__pycache__/"
+    rm -rf build dist stumpy.egg-info __pycache__
     rm -f docs/*.nbconvert.ipynb
+    rm -rf ".coveragerc_ray"
     if [ -d "$site_pkgs/stumpy/__pycache__" ]; then
         rm -rf $site_pkgs/stumpy/__pycache__/*nb*
     fi
@@ -196,13 +333,26 @@ convert_notebooks()
 #   Main  #
 ###########
 
+if [[ $test_mode == "show" ]]; then
+    echo "Show development/test environment"
+    show
+fi
+
 clean_up
 check_black
 check_isort
 check_flake
 check_docstrings
 check_print
+check_pkg_imports
 check_naive
+check_ray
+
+
+if [[ -z $NUMBA_DISABLE_JIT || $NUMBA_DISABLE_JIT -eq 0 ]]; then
+  check_fastmath
+fi
+
 
 if [[ $test_mode == "notebooks" ]]; then
     echo "Executing Tutorial Notebooks Only"
@@ -220,6 +370,17 @@ elif [[ $test_mode == "custom" ]]; then
     # export NUMBA_DISABLE_JIT=1
     # export NUMBA_ENABLE_CUDASIM=1
     test_custom
+elif [[ $test_mode == "report" ]]; then
+    echo "Generate Coverage Report Only"
+    # Assume coverage tests have already been executed
+    # and a coverage file exists
+    show_coverage_report
+elif [[ $test_mode == "gpu" ]]; then
+    echo "Executing GPU Unit Tests Only"
+    test_gpu
+elif [[ $test_mode == "count" ]]; then
+    echo "Counting Unit Tests"
+    count
 elif [[ $test_mode == "links" ]]; then
     echo "Check Notebook Links  Only"
     check_links

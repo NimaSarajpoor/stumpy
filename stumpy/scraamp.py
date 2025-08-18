@@ -83,7 +83,7 @@ def _preprocess_prescraamp(T_A, m, T_B=None, s=None):
     return (T_A, T_B, T_A_subseq_isfinite, T_B_subseq_isfinite, indices, s, excl_zone)
 
 
-@njit(fastmath=True)
+@njit(fastmath=config.STUMPY_FASTMATH_FLAGS)
 def _compute_PI(
     T_A,
     T_B,
@@ -286,7 +286,7 @@ def _compute_PI(
     # "(f8[:], f8[:], i8, b1[:], b1[:], f8, i8, i8, f8[:], f8[:],"
     # "i8[:], optional(i8))",
     parallel=True,
-    fastmath=True,
+    fastmath=config.STUMPY_FASTMATH_FLAGS,
 )
 def _prescraamp(
     T_A,
@@ -536,7 +536,7 @@ class scraamp:
         The updated (top-k) matrix profile indices. When `k=1` (default), this output is
         a 1D array consisting of the matrix profile indices. When `k > 1`, the output
         is a 2D array that has exactly `k` columns consisting of the top-k matrix
-        profile indiecs.
+        profile indices.
 
     left_I_ : numpy.ndarray
         The updated left (top-1) matrix profile indices
@@ -646,10 +646,15 @@ class scraamp:
                 "For multidimensional STUMP use `stumpy.mstump` or `stumpy.mstumped`"
             )
 
-        core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
         self._ignore_trivial = core.check_ignore_trivial(
             self._T_A, self._T_B, self._ignore_trivial
         )
+        if self._ignore_trivial:  # self-join
+            core.check_window_size(
+                m, max_size=min(T_A.shape[0], T_B.shape[0]), n=T_A.shape[0]
+            )
+        else:  # AB-join
+            core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
 
         self._n_A = self._T_A.shape[0]
         self._n_B = self._T_B.shape[0]

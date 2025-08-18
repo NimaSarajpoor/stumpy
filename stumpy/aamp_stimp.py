@@ -67,7 +67,7 @@ class _aamp_stimp:
 
     m_stop : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
+        may be computed. When `m_stop = None`, this is set to the maximum allowable
         subsequence window size
 
     m_step : int, default 1
@@ -91,7 +91,7 @@ class _aamp_stimp:
 
     device_id : int or list, default None
         The (GPU) device number to use. The default value is `0`. A list of
-        valid device ids (int) may also be provided for parallel GPU-STUMP
+        valid device ids (``int``) may also be provided for parallel GPU-STUMP
         computation. A list of all valid device ids can be obtained by
         executing `[device.id for device in numba.cuda.list_devices()]`.
 
@@ -178,7 +178,7 @@ class _aamp_stimp:
 
         device_id : int or list, default None
             The (GPU) device number to use. The default value is `0`. A list of
-            valid device ids (int) may also be provided for parallel GPU-STUMP
+            valid device ids (``int``) may also be provided for parallel GPU-STUMP
             computation. A list of all valid device ids can be obtained by
             executing `[device.id for device in numba.cuda.list_devices()]`.
 
@@ -348,6 +348,26 @@ class _aamp_stimp:
         """
         return self._M.astype(np.int64)
 
+    @property
+    def P_(self):
+        """
+        Get all of the raw (i.e., non-transformed) matrix profiles matrix profile in
+        (breadth first searched (level) ordered)
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+        P = []
+        for i, idx in enumerate(self._bfs_indices):
+            P.append(self._PAN[idx][: len(self._T) - self._M[i] + 1])
+
+        return P
+
     # @property
     # def bfs_indices_(self):
     #     """
@@ -380,7 +400,7 @@ class aamp_stimp(_aamp_stimp):
 
     m_stop : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
+        may be computed. When `m_stop = None`, this is set to the maximum allowable
         subsequence window size
 
     m_step : int, default 1
@@ -486,16 +506,15 @@ class aamp_stimp(_aamp_stimp):
 
 class aamp_stimped(_aamp_stimp):
     """
-    Compute the Pan Matrix Profile with a distributed dask cluster
+    Compute the Pan Matrix Profile with a `dask`/`ray` cluster
 
     This is based on the SKIMP algorithm.
 
     Parameters
     ----------
     client : client
-        A Dask or Ray Distributed client. Setting up a distributed cluster is beyond
-        the scope of this library. Please refer to the Dask or Ray Distributed
-        documentation.
+        A `dask`/`ray` client. Setting up a cluster is beyond the scope of this library.
+        Please refer to the `dask`/`ray` documentation.
 
     T : numpy.ndarray
         The time series or sequence for which to compute the pan matrix profile
@@ -506,7 +525,7 @@ class aamp_stimped(_aamp_stimp):
 
     m_stop : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
+        may be computed. When `m_stop = None`, this is set to the maximum allowable
         subsequence window size
 
     m_step : int, default 1
@@ -556,9 +575,8 @@ class aamp_stimped(_aamp_stimp):
         Parameters
         ----------
         client : client
-            A Dask or Ray Distributed client. Setting up a distributed cluster is beyond
-            the scope of this library. Please refer to the Dask or Ray Distributed
-            documentation.
+            A `dask`/`ray` client. Setting up a cluster is beyond the scope of this
+            library. Please refer to the `dask`/`ray` documentation.
 
         T : numpy.ndarray
             The time series or sequence for which to compute the pan matrix profile

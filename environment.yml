@@ -1,10 +1,11 @@
 channels:
+  - numba
   - conda-forge
 dependencies:
-  - python>=3.8
-  - numpy>=1.18
-  - scipy>=1.5
-  - numba>=0.55.2
+  - python>=3.9
+  - numpy>=1.22
+  - scipy>=1.10
+  - numba>=0.59.1
   - pandas>=0.20.0
   - flake8>=3.7.7
   - flake8-docstrings>=1.5.0
@@ -17,10 +18,12 @@ dependencies:
   - lxml>=4.5.2
   - twine>=3.2.0
   - sphinx>=3.5.3
-  - nbsphinx>=0.8.1
   - pydata-sphinx-theme>=0.5.2
   - scikit-learn>=0.21.3
   - numpydoc>=1.1.0
-  - build>=0.7.0
+  - python-build>=0.7.0
   - pytest-check-links>=0.7.1
   - isort>=5.11.0
+  - jupyterlab-myst>=2.0.0
+  - myst-nb>=1.0.0
+  - polars>=1.14.0
