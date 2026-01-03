@@ -23,7 +23,7 @@ class gpu_aamp_stimp(_aamp_stimp):
 
     m_stop : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
+        may be computed. When `m_stop = None`, this is set to the maximum allowable
         subsequence window size
 
     m_step : int, default 1
@@ -36,7 +36,9 @@ class gpu_aamp_stimp(_aamp_stimp):
         executing `[device.id for device in numba.cuda.list_devices()]`.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Attributes
     ----------
@@ -97,7 +99,9 @@ class gpu_aamp_stimp(_aamp_stimp):
             executing `[device.id for device in numba.cuda.list_devices()]`.
 
         p : float, default 2.0
-            The p-norm to apply for computing the Minkowski distance.
+            The p-norm to apply for computing the Minkowski distance. Minkowski distance
+            is typically used with `p` being 1 or 2, which correspond to the Manhattan
+            distance and the Euclidean distance, respectively.
         """
         super().__init__(
             T,

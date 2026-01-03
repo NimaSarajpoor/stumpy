@@ -2,11 +2,11 @@
 # Copyright 2019 TD Ameritrade. Released under the terms of the 3-Clause BSD license.
 # STUMPY is a trademark of TD Ameritrade IP Company, Inc. All rights reserved.
 
+import numba
 import numpy as np
 from numba import njit, prange
-import numba
 
-from . import core, config
+from . import config, core
 from .aamp import _aamp
 
 
@@ -83,7 +83,7 @@ def _preprocess_prescraamp(T_A, m, T_B=None, s=None):
     return (T_A, T_B, T_A_subseq_isfinite, T_B_subseq_isfinite, indices, s, excl_zone)
 
 
-@njit(fastmath=True)
+@njit(fastmath=config.STUMPY_FASTMATH_FLAGS)
 def _compute_PI(
     T_A,
     T_B,
@@ -126,7 +126,9 @@ def _compute_PI(
         `np.nan`/`np.inf` value (False)
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     indices : numpy.ndarray
         The subsequence indices to compute `prescrump` for
@@ -173,6 +175,9 @@ def _compute_PI(
             core._apply_exclusion_zone(p_norm_profile, i, excl_zone, np.inf)
 
         nn_i = np.argmin(p_norm_profile)
+        if p_norm_profile[nn_i] == np.inf:
+            continue
+
         if (
             p_norm_profile[nn_i] < P_NORM[thread_idx, i, -1]
             and nn_i not in I[thread_idx, i]
@@ -186,11 +191,6 @@ def _compute_PI(
                 P_NORM[thread_idx, i], idx, p_norm_profile[nn_i]
             )
             core._shift_insert_at_index(I[thread_idx, i], idx, nn_i)
-
-        # this if is not needed as it is probably never executed
-        if P_NORM[thread_idx, i, 0] == np.inf:  # pragma: no cover
-            I[thread_idx, i, 0] = -1
-            continue
 
         j = nn_i
         p_norm_j = P_NORM[thread_idx, i, 0]
@@ -286,7 +286,7 @@ def _compute_PI(
     # "(f8[:], f8[:], i8, b1[:], b1[:], f8, i8, i8, f8[:], f8[:],"
     # "i8[:], optional(i8))",
     parallel=True,
-    fastmath=True,
+    fastmath=config.STUMPY_FASTMATH_FLAGS,
 )
 def _prescraamp(
     T_A,
@@ -325,7 +325,9 @@ def _prescraamp(
         `np.nan`/`np.inf` value (False)
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     indices : int
         The subsequence index in `T_B` that corresponds to `Q`
@@ -333,15 +335,6 @@ def _prescraamp(
     s : int
         The sampling interval that defaults to
         `int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))`
-
-    p_norm_profile : numpy.ndarray
-        A reusable array to store the computed p-norm distance profile
-
-    P : numpy.ndarray
-        The squared matrix profile
-
-    I : numpy.ndarray
-        The matrix profile indices
 
     excl_zone : int
         The half width for the exclusion zone relative to the `i`.
@@ -425,7 +418,9 @@ def prescraamp(T_A, m, T_B=None, s=None, p=2.0, k=1):
         `int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))`
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     k : int, default 1
         The number of top `k` smallest distances used to construct the matrix profile.
@@ -520,7 +515,9 @@ class scraamp:
         zone.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     k : int, default 1
         The number of top `k` smallest distances used to construct the matrix profile.
@@ -539,7 +536,7 @@ class scraamp:
         The updated (top-k) matrix profile indices. When `k=1` (default), this output is
         a 1D array consisting of the matrix profile indices. When `k > 1`, the output
         is a 2D array that has exactly `k` columns consisting of the top-k matrix
-        profile indiecs.
+        profile indices.
 
     left_I_ : numpy.ndarray
         The updated left (top-1) matrix profile indices
@@ -574,7 +571,7 @@ class scraamp:
         pre_scraamp=False,
         s=None,
         p=2.0,
-        k=1,  # this function needs to be modified for top-k
+        k=1,
     ):
         """
         Initialize the `scraamp` object
@@ -610,7 +607,9 @@ class scraamp:
             size of the exclusion zone.
 
         p : float, default 2.0
-            The p-norm to apply for computing the Minkowski distance.
+            The p-norm to apply for computing the Minkowski distance. Minkowski distance
+            is typically used with `p` being 1 or 2, which correspond to the Manhattan
+            distance and the Euclidean distance, respectively.
 
         k : int, default 1
             The number of top `k` smallest distances used to construct the matrix
@@ -622,6 +621,7 @@ class scraamp:
 
         if T_B is None:
             T_B = T_A
+            core.check_self_join(self._ignore_trivial)
             self._ignore_trivial = True
 
         self._m = m
@@ -647,10 +647,15 @@ class scraamp:
                 "For multidimensional STUMP use `stumpy.mstump` or `stumpy.mstumped`"
             )
 
-        core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
         self._ignore_trivial = core.check_ignore_trivial(
             self._T_A, self._T_B, self._ignore_trivial
         )
+        if self._ignore_trivial:  # self-join
+            core.check_window_size(
+                m, max_size=min(T_A.shape[0], T_B.shape[0]), n=T_A.shape[0]
+            )
+        else:  # AB-join
+            core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
 
         self._n_A = self._T_A.shape[0]
         self._n_B = self._T_B.shape[0]
@@ -740,6 +745,14 @@ class scraamp:
         Update the (top-k) matrix profile and the (top-k) matrix profile indices by
         computing additional new distances (limited by `percentage`) that make up
         the full distance matrix.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         if self._chunk_idx < self._n_chunks:
             start_idx, stop_idx = self._chunk_diags_ranges[self._chunk_idx]
@@ -778,6 +791,14 @@ class scraamp:
         is a 1D array consisting of the updated matrix profile. When `k > 1`, the
         output is a 2D array that has exactly `k` columns consisting of the updated
         top-k matrix profile.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         if self._k == 1:
             return self._P.flatten().astype(np.float64)
@@ -791,6 +812,14 @@ class scraamp:
         output is a 1D array consisting of the updated matrix profile indices. When
         `k > 1`, the output is a 2D array that has exactly `k` columns consisting
         of the updated top-k matrix profile indices.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         if self._k == 1:
             return self._I.flatten().astype(np.int64)
@@ -801,6 +830,14 @@ class scraamp:
     def left_I_(self):
         """
         Get the updated left (top-1) matrix profile indices
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         return self._IL.astype(np.int64)
 
@@ -808,5 +845,13 @@ class scraamp:
     def right_I_(self):
         """
         Get the updated right (top-1) matrix profile indices
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         return self._IR.astype(np.int64)

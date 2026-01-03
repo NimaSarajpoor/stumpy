@@ -8,8 +8,9 @@ import os
 import numpy as np
 from numba import cuda
 
-from . import core, config
+from . import config, core
 from .gpu_aamp import gpu_aamp
+from .mparray import mparray
 
 
 @cuda.jit(
@@ -18,19 +19,19 @@ from .gpu_aamp import gpu_aamp
     "f8[:], i8[:, :], i8[:], i8[:], b1, i8[:], i8, i8)"
 )
 def _compute_and_update_PI_kernel(
-    i,
+    idx,
     T_A,
     T_B,
     m,
     QT_even,
     QT_odd,
     QT_first,
-    M_T,
-    Σ_T,
     μ_Q,
     σ_Q,
-    T_subseq_isconstant,
+    M_T,
+    Σ_T,
     Q_subseq_isconstant,
+    T_subseq_isconstant,
     w,
     ignore_trivial,
     excl_zone,
@@ -50,8 +51,8 @@ def _compute_and_update_PI_kernel(
 
     Parameters
     ----------
-    i : int
-        Sliding window `i`
+    idx : int
+        The index for sliding window `j` (in  `T_B`)
 
     T_A : numpy.ndarray
         The time series or sequence for which to compute the dot product
@@ -74,23 +75,23 @@ def _compute_and_update_PI_kernel(
     QT_first : numpy.ndarray
         Dot product between the first query sequence,`Q`, and time series, `T`
 
-    M_T : numpy.ndarray
-        Sliding mean of time series, `T`
-
-    Σ_T : numpy.ndarray
-        Sliding standard deviation of time series, `T`
-
     μ_Q : numpy.ndarray
         Mean of the query sequence, `Q`
 
     σ_Q : numpy.ndarray
         Standard deviation of the query sequence, `Q`
 
-    T_subseq_isconstant : numpy.ndarray
-        A boolean array that indicates whether a subsequence in `T` is constant (True)
+    M_T : numpy.ndarray
+        Sliding mean of time series, `T`
+
+    Σ_T : numpy.ndarray
+        Sliding standard deviation of time series, `T`
 
     Q_subseq_isconstant : numpy.ndarray
-        A boolean array that indicates whether a subsequence in `Q` is constant (True)
+        A boolean array that indicates whether the subsequence in `Q` is constant (True)
+
+    T_subseq_isconstant : numpy.ndarray
+        A boolean array that indicates whether a subsequence in `T` is constant (True)
 
     w : int
         The total number of sliding windows to iterate over
@@ -151,54 +152,57 @@ def _compute_and_update_PI_kernel(
     start = cuda.grid(1)
     stride = cuda.gridsize(1)
 
-    if i % 2 == 0:
+    j = idx
+    # The name `i` is reserved to be used as an index for `T_A`
+
+    if j % 2 == 0:
         QT_out = QT_even
         QT_in = QT_odd
     else:
         QT_out = QT_odd
         QT_in = QT_even
 
-    for j in range(start, QT_out.shape[0], stride):
-        zone_start = max(0, j - excl_zone)
-        zone_stop = min(w, j + excl_zone)
+    for i in range(start, QT_out.shape[0], stride):
+        zone_start = max(0, i - excl_zone)
+        zone_stop = min(w, i + excl_zone)
 
         if compute_QT:
-            QT_out[j] = (
-                QT_in[j - 1] - T_B[i - 1] * T_A[j - 1] + T_B[i + m - 1] * T_A[j + m - 1]
+            QT_out[i] = (
+                QT_in[i - 1] - T_A[i - 1] * T_B[j - 1] + T_A[i + m - 1] * T_B[j + m - 1]
             )
 
-            QT_out[0] = QT_first[i]
-        if math.isinf(M_T[j]) or math.isinf(μ_Q[i]):
+            QT_out[0] = QT_first[j]
+        if math.isinf(μ_Q[i]) or math.isinf(M_T[j]):
             p_norm = np.inf
-        elif T_subseq_isconstant[j] and Q_subseq_isconstant[i]:
+        elif Q_subseq_isconstant[i] and T_subseq_isconstant[j]:
             p_norm = 0
-        elif T_subseq_isconstant[j] or Q_subseq_isconstant[i]:
+        elif Q_subseq_isconstant[i] or T_subseq_isconstant[j]:
             p_norm = m
         else:
-            denom = m * σ_Q[i] * Σ_T[j]
+            denom = (σ_Q[i] * Σ_T[j]) * m
             denom = max(denom, config.STUMPY_DENOM_THRESHOLD)
-            ρ = (QT_out[j] - m * μ_Q[i] * M_T[j]) / denom
+            ρ = (QT_out[i] - (μ_Q[i] * M_T[j]) * m) / denom
             ρ = min(ρ, 1.0)
             p_norm = 2 * m * (1.0 - ρ)
 
         if ignore_trivial:
-            if i <= zone_stop and i >= zone_start:
+            if j <= zone_stop and j >= zone_start:
                 p_norm = np.inf
-            if p_norm < profile_L[j] and i < j:
-                profile_L[j] = p_norm
-                indices_L[j] = i
-            if p_norm < profile_R[j] and i > j:
-                profile_R[j] = p_norm
-                indices_R[j] = i
+            if p_norm < profile_L[i] and j < i:
+                profile_L[i] = p_norm
+                indices_L[i] = j
+            if p_norm < profile_R[i] and j > i:
+                profile_R[i] = p_norm
+                indices_R[i] = j
 
-        if p_norm < profile[j, -1]:
-            idx = core._gpu_searchsorted_right(profile[j], p_norm, bfs, nlevel)
+        if p_norm < profile[i, -1]:
+            idx = core._gpu_searchsorted_right(profile[i], p_norm, bfs, nlevel)
             for g in range(k - 1, idx, -1):
-                profile[j, g] = profile[j, g - 1]
-                indices[j, g] = indices[j, g - 1]
+                profile[i, g] = profile[i, g - 1]
+                indices[i, g] = indices[i, g - 1]
 
-            profile[j, idx] = p_norm
-            indices[j, idx] = i
+            profile[i, idx] = p_norm
+            indices[i, idx] = j
 
 
 def _gpu_stump(
@@ -207,14 +211,14 @@ def _gpu_stump(
     m,
     range_stop,
     excl_zone,
-    M_T_fname,
-    Σ_T_fname,
-    QT_fname,
-    QT_first_fname,
     μ_Q_fname,
     σ_Q_fname,
-    T_subseq_isconstant_fname,
+    QT_fname,
+    QT_first_fname,
+    M_T_fname,
+    Σ_T_fname,
     Q_subseq_isconstant_fname,
+    T_subseq_isconstant_fname,
     w,
     ignore_trivial=True,
     range_start=1,
@@ -248,11 +252,13 @@ def _gpu_stump(
         The half width for the exclusion zone relative to the current
         sliding window
 
-    M_T_fname : str
-        The file name for the sliding mean of time series, `T`
+    μ_Q_fname : str
+        The file name for the mean of the query sequence, `Q`, relative to
+        the current sliding window
 
-    Σ_T_fname : str
-        The file name for the sliding standard deviation of time series, `T`
+    σ_Q_fname : str
+        The file name for the standard deviation of the query sequence, `Q`,
+        relative to the current sliding window
 
     QT_fname : str
         The file name for the dot product between some query sequence,`Q`,
@@ -262,19 +268,17 @@ def _gpu_stump(
         The file name for the QT for the first window relative to the current
         sliding window
 
-    μ_Q_fname : str
-        The file name for the mean of the query sequence, `Q`, relative to
-        the current sliding window
+    M_T_fname : str
+        The file name for the sliding mean of time series, `T`
 
-    σ_Q_fname : str
-        The file name for the standard deviation of the query sequence, `Q`,
-        relative to the current sliding window
-
-    T_subseq_isconstant_fname : str
-        The file name for the rolling isconstant in `T`
+    Σ_T_fname : str
+        The file name for the sliding standard deviation of time series, `T`
 
     Q_subseq_isconstant_fname : str
         The file name for the rolling isconstant in `Q`
+
+    T_subseq_isconstant_fname : str
+        The file name for the rolling isconstant in `T`
 
     w : int
         The total number of sliding windows to iterate over
@@ -341,12 +345,12 @@ def _gpu_stump(
     T_B = np.load(T_B_fname, allow_pickle=False)
     QT = np.load(QT_fname, allow_pickle=False)
     QT_first = np.load(QT_first_fname, allow_pickle=False)
-    M_T = np.load(M_T_fname, allow_pickle=False)
-    Σ_T = np.load(Σ_T_fname, allow_pickle=False)
     μ_Q = np.load(μ_Q_fname, allow_pickle=False)
     σ_Q = np.load(σ_Q_fname, allow_pickle=False)
-    T_subseq_isconstant = np.load(T_subseq_isconstant_fname, allow_pickle=False)
+    M_T = np.load(M_T_fname, allow_pickle=False)
+    Σ_T = np.load(Σ_T_fname, allow_pickle=False)
     Q_subseq_isconstant = np.load(Q_subseq_isconstant_fname, allow_pickle=False)
+    T_subseq_isconstant = np.load(T_subseq_isconstant_fname, allow_pickle=False)
 
     nlevel = np.floor(np.log2(k) + 1).astype(np.int64)
     # number of levels in binary search tree from which `bfs` is constructed.
@@ -356,20 +360,20 @@ def _gpu_stump(
         device_QT_odd = cuda.to_device(QT)
         device_QT_even = cuda.to_device(QT)
         device_QT_first = cuda.to_device(QT_first)
-        device_M_T = cuda.to_device(M_T)
-        device_Σ_T = cuda.to_device(Σ_T)
-        device_T_subseq_isconstant = cuda.to_device(T_subseq_isconstant)
+        device_μ_Q = cuda.to_device(μ_Q)
+        device_σ_Q = cuda.to_device(σ_Q)
+        device_Q_subseq_isconstant = cuda.to_device(Q_subseq_isconstant)
 
         if ignore_trivial:
             device_T_B = device_T_A
-            device_μ_Q = device_M_T
-            device_σ_Q = device_Σ_T
-            device_Q_subseq_isconstant = device_T_subseq_isconstant
+            device_M_T = device_μ_Q
+            device_Σ_T = device_σ_Q
+            device_T_subseq_isconstant = device_Q_subseq_isconstant
         else:
             device_T_B = cuda.to_device(T_B)
-            device_μ_Q = cuda.to_device(μ_Q)
-            device_σ_Q = cuda.to_device(σ_Q)
-            device_Q_subseq_isconstant = cuda.to_device(Q_subseq_isconstant)
+            device_M_T = cuda.to_device(M_T)
+            device_Σ_T = cuda.to_device(Σ_T)
+            device_T_subseq_isconstant = cuda.to_device(T_subseq_isconstant)
 
         profile = np.full((w, k), np.inf, dtype=np.float64)
         indices = np.full((w, k), -1, dtype=np.int64)
@@ -396,12 +400,12 @@ def _gpu_stump(
             device_QT_even,
             device_QT_odd,
             device_QT_first,
-            device_M_T,
-            device_Σ_T,
             device_μ_Q,
             device_σ_Q,
-            device_T_subseq_isconstant,
+            device_M_T,
+            device_Σ_T,
             device_Q_subseq_isconstant,
+            device_T_subseq_isconstant,
             w,
             ignore_trivial,
             excl_zone,
@@ -426,12 +430,12 @@ def _gpu_stump(
                 device_QT_even,
                 device_QT_odd,
                 device_QT_first,
-                device_M_T,
-                device_Σ_T,
                 device_μ_Q,
                 device_σ_Q,
-                device_T_subseq_isconstant,
+                device_M_T,
+                device_Σ_T,
                 device_Q_subseq_isconstant,
+                device_T_subseq_isconstant,
                 w,
                 ignore_trivial,
                 excl_zone,
@@ -477,72 +481,116 @@ def _gpu_stump(
 
 @core.non_normalized(gpu_aamp)
 def gpu_stump(
-    T_A, m, T_B=None, ignore_trivial=True, device_id=0, normalize=True, p=2.0, k=1
+    T_A,
+    m,
+    T_B=None,
+    ignore_trivial=True,
+    device_id=0,
+    normalize=True,
+    p=2.0,
+    k=1,
+    T_A_subseq_isconstant=None,
+    T_B_subseq_isconstant=None,
 ):
     """
     Compute the z-normalized matrix profile with one or more GPU devices
 
-    This is a convenience wrapper around the Numba `cuda.jit` `_gpu_stump` function
+    This is a convenience wrapper around the Numba ``cuda.jit`` ``_gpu_stump`` function
     which computes the matrix profile according to GPU-STOMP. The default number of
-    threads-per-block is set to `512` and may be changed by setting the global parameter
-    `config.STUMPY_THREADS_PER_BLOCK` to an appropriate number based on your GPU
-    hardware.
+    threads-per-block is set to ``512`` and may be changed by setting the global
+    parameter ``config.STUMPY_THREADS_PER_BLOCK`` to an appropriate number based on
+    your GPU hardware.
 
     Parameters
     ----------
     T_A : numpy.ndarray
-        The time series or sequence for which to compute the matrix profile
+        The time series or sequence for which to compute the matrix profile.
 
     m : int
-        Window size
+        Window size.
 
     T_B : numpy.ndarray, default None
-        The time series or sequence that will be used to annotate T_A. For every
-        subsequence in T_A, its nearest neighbor in T_B will be recorded. Default is
-        `None` which corresponds to a self-join.
+        The time series or sequence that will be used to annotate ``T_A``. For every
+        subsequence in ``T_A``, its nearest neighbor in ``T_B`` will be recorded.
+        Default is  ``None`` which corresponds to a self-join.
 
     ignore_trivial : bool, default True
-        Set to `True` if this is a self-join. Otherwise, for AB-join, set this
-        to `False`. Default is `True`.
+        Set to ``True`` if this is a self-join (i.e., for a single time series
+        ``T_A`` without ``T_B``). This ensures that an exclusion zone is applied
+        to each subsequence in ``T_A`` and all trivial/self-matches are ignored.
+        Otherwise, for an AB-join (i.e., between two times series, ``T_A`` and
+        ``T_B``), set this to ``False``.
 
     device_id : int or list, default 0
-        The (GPU) device number to use. The default value is `0`. A list of
-        valid device ids (int) may also be provided for parallel GPU-STUMP
+        The (GPU) device number to use. The default value is ``0``. A list of
+        valid device ids (``int``) may also be provided for parallel GPU-STUMP
         computation. A list of all valid device ids can be obtained by
-        executing `[device.id for device in numba.cuda.list_devices()]`.
+        executing ``[device.id for device in numba.cuda.list_devices()]``.
 
     normalize : bool, default True
-        When set to `True`, this z-normalizes subsequences prior to computing distances.
-        Otherwise, this function gets re-routed to its complementary non-normalized
-        equivalent set in the `@core.non_normalized` function decorator.
+        When set to ``True``, this z-normalizes subsequences prior to computing
+        distances. Otherwise, this function gets re-routed to its complementary
+        non-normalized equivalent set in the ``@core.non_normalized`` function
+        decorator.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance. This parameter is
-        ignored when `normalize == True`.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with ``p`` being ``1`` or ``2``, which correspond to the
+        Manhattan distance and the Euclidean distance, respectively. This parameter is
+        ignored when ``normalize == True``.
 
     k : int, default 1
-        The number of top `k` smallest distances used to construct the matrix profile.
-        Note that this will increase the total computational time and memory usage
-        when k > 1.
+        The number of top ``k`` smallest distances used to construct the matrix
+        profile. Note that this will increase the total computational time and memory
+        usage when ``k > 1``.
+
+    T_A_subseq_isconstant : numpy.ndarray or function, default None
+        A boolean array that indicates whether a subsequence in ``T_A`` is constant
+        (``True``). Alternatively, a custom, user-defined function that returns a
+        boolean array that indicates whether a subsequence in ``T_A`` is constant
+        (``True``). The function must only take two arguments, ``a``, a 1-D array,
+        and ``w``, the window size, while additional arguments may be specified
+        by currying the user-defined function using ``functools.partial``. Any
+        subsequence with at least one ``np.nan``/``np.inf`` will automatically have
+        its corresponding value set to ``False`` in this boolean array.
+
+    T_B_subseq_isconstant : numpy.ndarray or function, default None
+        A boolean array that indicates whether a subsequence in ``T_B`` is constant
+        (``True``). Alternatively, a custom, user-defined function that returns a
+        boolean array that indicates whether a subsequence in ``T_B`` is constant
+        (``True``). The function must only take two arguments, ``a``, a 1-D array,
+        and ``w``, the window size, while additional arguments may be specified
+        by currying the user-defined function using ``functools.partial``. Any
+        subsequence with at least one ``np.nan``/``np.inf`` will automatically have
+        its corresponding value set to ``False`` in this boolean array.
 
     Returns
     -------
     out : numpy.ndarray
-        When k = 1 (default), the first column consists of the matrix profile,
+        When ``k = 1`` (default), the first column consists of the matrix profile,
         the second column consists of the matrix profile indices, the third column
         consists of the left matrix profile indices, and the fourth column consists
-        of the right matrix profile indices. However, when k > 1, the output array
-        will contain exactly 2 * k + 2 columns. The first k columns (i.e., out[:, :k])
-        consists of the top-k matrix profile, the next set of k columns
-        (i.e., out[:, k:2k]) consists of the corresponding top-k matrix profile
-        indices, and the last two columns (i.e., out[:, 2k] and out[:, 2k+1] or,
-        equivalently, out[:, -2] and out[:, -1]) correspond to the top-1 left
-        matrix profile indices and the top-1 right matrix profile indices, respectively.
+        of the right matrix profile indices. However, when ``k > 1``, the output array
+        will contain exactly ``2 * k + 2`` columns. The first ``k`` columns (i.e.,
+        ``out[:, :k]``) consists of the top-k matrix profile, the next set of ``k``
+        columns (i.e., ``out[:, k : 2 * k``]) consists of the corresponding top-k matrix
+        profile indices, and the last two columns (i.e., ``out[:, 2 * k]`` and
+        ``out[:, 2 * k + 1]`` or, equivalently, ``out[:, -2]`` and ``out[:, -1]``)
+        correspond to the top-1 left matrix profile indices and the top-1 right matrix
+        profile indices, respectively.
+
+        |
+
+        For convenience, the matrix profile (distances) and matrix profile indices can
+        also be accessed via their corresponding named array attributes, ``.P_`` and
+        ``.I_``,respectively. Similarly, the corresponding left matrix profile indices
+        and right matrix profile indices may also be accessed via the ``.left_I_`` and
+        ``.right_I_`` array attributes. See examples below.
 
     See Also
     --------
     stumpy.stump : Compute the z-normalized matrix profile
-    stumpy.stumped : Compute the z-normalized matrix profile with a distributed dask
+    stumpy.stumped : Compute the z-normalized matrix profile with a ``dask``/ ``ray``
         cluster
     stumpy.scrump : Compute an approximate z-normalized matrix profile
 
@@ -553,48 +601,62 @@ def gpu_stump(
 
     See Table II, Figure 5, and Figure 6
 
-    Timeseries, T_A, will be annotated with the distance location
-    (or index) of all its subsequences in another times series, T_B.
+    Timeseries, ``T_A``, will be annotated with the distance location
+    (or index) of all its subsequences in another times series, ``T_B``.
 
-    Return: For every subsequence, Q, in T_A, you will get a distance
-    and index for the closest subsequence in T_B. Thus, the array
-    returned will have length T_A.shape[0]-m+1. Additionally, the
+    Return: For every subsequence, ``Q``, in ``T_A``, you will get a distance
+    and index for the closest subsequence in ``T_B``. Thus, the array
+    returned will have length ``T_A.shape[0] - m + 1``. Additionally, the
     left and right matrix profiles are also returned.
 
-    Note: Unlike in the Table II where T_A.shape is expected to be equal
-    to T_B.shape, this implementation is generalized so that the shapes of
-    T_A and T_B can be different. In the case where T_A.shape == T_B.shape,
+    Note: Unlike in the Table II where ``T_A.shape`` is expected to be equal
+    to ``T_B.shape``, this implementation is generalized so that the shapes of
+    ``T_A`` and ``T_B`` can be different. In the case where ``T_A.shape == T_B.shape``,
     then our algorithm reduces down to the same algorithm found in Table II.
 
-    Additionally, unlike STAMP where the exclusion zone is m/2, the default
-    exclusion zone for STOMP is m/4 (See Definition 3 and Figure 3).
+    Additionally, unlike STAMP where the exclusion zone is ``m``/2, the default
+    exclusion zone for STOMP is ``m``/4 (See Definition 3 and Figure 3).
 
-    For self-joins, set `ignore_trivial = True` in order to avoid the
+    For self-joins, set ``ignore_trivial = True`` in order to avoid the
     trivial match.
 
     Note that left and right matrix profiles are only available for self-joins.
 
     Examples
     --------
+    >>> import stumpy
+    >>> import numpy as np
     >>> from numba import cuda
     >>> if __name__ == "__main__":
     ...     all_gpu_devices = [device.id for device in cuda.list_devices()]
-    ...     stumpy.gpu_stump(
+    ...     mp = stumpy.gpu_stump(
     ...         np.array([584., -11., 23., 79., 1001., 0., -19.]),
     ...         m=3,
     ...         device_id=all_gpu_devices)
-    array([[0.11633857113691416, 4, -1, 4],
-           [2.694073918063438, 3, -1, 3],
-           [3.0000926340485923, 0, 0, 4],
-           [2.694073918063438, 1, 1, -1],
-           [0.11633857113691416, 0, 0, -1]], dtype=object)
+    >>>     mp
+    mparray([[0.11633857113691416, 4, -1, 4],
+             [2.694073918063438, 3, -1, 3],
+             [3.0000926340485923, 0, 0, 4],
+             [2.694073918063438, 1, 1, -1],
+             [0.11633857113691416, 0, 0, -1]], dtype=object)
+    >>>
+    >>>     mp.P_
+    mparray([0.11633857, 2.69407392, 3.00009263, 2.69407392, 0.11633857])
+    >>>     mp.I_
+    mparray([4, 3, 0, 1, 0])
     """
     if T_B is None:  # Self join!
         T_B = T_A
+        core.check_self_join(ignore_trivial)
         ignore_trivial = True
+        T_B_subseq_isconstant = T_A_subseq_isconstant
 
-    T_A, M_T, Σ_T, T_subseq_isconstant = core.preprocess(T_A, m)
-    T_B, μ_Q, σ_Q, Q_subseq_isconstant = core.preprocess(T_B, m)
+    T_A, μ_Q, σ_Q, Q_subseq_isconstant = core.preprocess(
+        T_A, m, T_subseq_isconstant=T_A_subseq_isconstant
+    )
+    T_B, M_T, Σ_T, T_subseq_isconstant = core.preprocess(
+        T_B, m, T_subseq_isconstant=T_B_subseq_isconstant
+    )
 
     if T_A.ndim != 1:  # pragma: no cover
         raise ValueError(
@@ -608,8 +670,13 @@ def gpu_stump(
             "For multidimensional STUMP use `stumpy.mstump` or `stumpy.mstumped`"
         )
 
-    core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
     ignore_trivial = core.check_ignore_trivial(T_A, T_B, ignore_trivial)
+    if ignore_trivial:  # self-join
+        core.check_window_size(
+            m, max_size=min(T_A.shape[0], T_B.shape[0]), n=T_A.shape[0]
+        )
+    else:  # AB-join
+        core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
 
     n = T_B.shape[0]
     w = T_A.shape[0] - m + 1
@@ -620,12 +687,12 @@ def gpu_stump(
 
     T_A_fname = core.array_to_temp_file(T_A)
     T_B_fname = core.array_to_temp_file(T_B)
-    M_T_fname = core.array_to_temp_file(M_T)
-    Σ_T_fname = core.array_to_temp_file(Σ_T)
     μ_Q_fname = core.array_to_temp_file(μ_Q)
     σ_Q_fname = core.array_to_temp_file(σ_Q)
-    T_subseq_isconstant_fname = core.array_to_temp_file(T_subseq_isconstant)
+    M_T_fname = core.array_to_temp_file(M_T)
+    Σ_T_fname = core.array_to_temp_file(Σ_T)
     Q_subseq_isconstant_fname = core.array_to_temp_file(Q_subseq_isconstant)
+    T_subseq_isconstant_fname = core.array_to_temp_file(T_subseq_isconstant)
 
     if isinstance(device_id, int):
         device_ids = [device_id]
@@ -678,14 +745,14 @@ def gpu_stump(
                     m,
                     stop,
                     excl_zone,
-                    M_T_fname,
-                    Σ_T_fname,
-                    QT_fname,
-                    QT_first_fname,
                     μ_Q_fname,
                     σ_Q_fname,
-                    T_subseq_isconstant_fname,
+                    QT_fname,
+                    QT_first_fname,
+                    M_T_fname,
+                    Σ_T_fname,
                     Q_subseq_isconstant_fname,
+                    T_subseq_isconstant_fname,
                     w,
                     ignore_trivial,
                     start + 1,
@@ -709,14 +776,14 @@ def gpu_stump(
                 m,
                 stop,
                 excl_zone,
-                M_T_fname,
-                Σ_T_fname,
-                QT_fname,
-                QT_first_fname,
                 μ_Q_fname,
                 σ_Q_fname,
-                T_subseq_isconstant_fname,
+                QT_fname,
+                QT_first_fname,
+                M_T_fname,
+                Σ_T_fname,
                 Q_subseq_isconstant_fname,
+                T_subseq_isconstant_fname,
                 w,
                 ignore_trivial,
                 start + 1,
@@ -743,12 +810,12 @@ def gpu_stump(
 
     os.remove(T_A_fname)
     os.remove(T_B_fname)
-    os.remove(M_T_fname)
-    os.remove(Σ_T_fname)
     os.remove(μ_Q_fname)
     os.remove(σ_Q_fname)
-    os.remove(T_subseq_isconstant_fname)
+    os.remove(M_T_fname)
+    os.remove(Σ_T_fname)
     os.remove(Q_subseq_isconstant_fname)
+    os.remove(T_subseq_isconstant_fname)
     for QT_fname in QT_fnames:
         os.remove(QT_fname)
     for QT_first_fname in QT_first_fnames:
@@ -797,4 +864,4 @@ def gpu_stump(
 
     core._check_P(out[:, 0])
 
-    return out
+    return mparray(out, m, k, config.STUMPY_EXCL_ZONE_DENOM)

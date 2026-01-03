@@ -1,15 +1,17 @@
-import numpy as np
-from numba import cuda
-import numpy.testing as npt
-import pandas as pd
-from scipy.spatial.distance import cdist
-from stumpy import core, config
-import pytest
-from unittest.mock import patch
-import os
+import functools
 import math
+import os
+from unittest.mock import patch
 
 import naive
+import numpy as np
+import numpy.testing as npt
+import pandas as pd
+import pytest
+from numba import cuda
+from scipy.spatial.distance import cdist
+
+from stumpy import config, core, stump
 
 if cuda.is_available():
 
@@ -61,9 +63,14 @@ def naive_compute_mean_std_multidimensional(T, m):
     return M_T, Σ_T
 
 
-def naive_idx_to_mp(I, T, m, normalize=True, p=2.0):
+def naive_idx_to_mp(I, T, m, normalize=True, p=2.0, T_subseq_isconstant=None):
     I = I.astype(np.int64)
     T = T.copy()
+
+    if normalize:
+        if T_subseq_isconstant is None:
+            T_subseq_isconstant = naive.rolling_isconstant(T, m)
+
     T_isfinite = np.isfinite(T)
     T_subseq_isfinite = np.all(core.rolling_window(T_isfinite, m), axis=1)
 
@@ -74,8 +81,16 @@ def naive_idx_to_mp(I, T, m, normalize=True, p=2.0):
         P = naive.distance(
             naive.z_norm(T_subseqs, axis=1), naive.z_norm(nn_subseqs, axis=1), axis=1
         )
+        for i, nn_i in enumerate(I):
+            if T_subseq_isconstant[i] and T_subseq_isconstant[nn_i]:
+                P[i] = 0
+            elif T_subseq_isconstant[i] or T_subseq_isconstant[nn_i]:
+                P[i] = np.sqrt(m)
+            else:  # pragma: no cover
+                pass
     else:
         P = naive.distance(T_subseqs, nn_subseqs, axis=1, p=p)
+
     P[~T_subseq_isfinite] = np.inf
     P[I < 0] = np.inf
 
@@ -175,6 +190,21 @@ def test_check_max_window_size():
     for m in range(4, 7):
         with pytest.raises(ValueError):
             core.check_window_size(m, max_size=3)
+
+
+def test_check_window_size_excl_zone():
+    # To ensure warning is raised if there is at least one subsequence
+    # that has no non-trivial neighbor
+    T = np.random.rand(10)
+    m = 7
+
+    # For `len(T) == 10` and `m == 7`, the `excl_zone` is ceil(m / 4) = 2.
+    # In this case, there are `10 - 7 + 1 = 4` subsequences of length 7,
+    # starting at indices 0, 1, 2, and 3. For a subsequence that starts at
+    # index 1, there are no non-trivial neighbors. So, a warning should be
+    # raised.
+    with pytest.warns(UserWarning):
+        core.check_window_size(m, max_size=len(T), n=len(T))
 
 
 @pytest.mark.parametrize("Q, T", test_data)
@@ -1019,6 +1049,10 @@ def test_rolling_isfinite():
 
     npt.assert_almost_equal(ref, comp)
 
+    # test `a` as all boolean isfinite array
+    comp = core.rolling_isfinite(np.isfinite(a), w)
+    npt.assert_almost_equal(ref, comp)
+
 
 def test_rolling_isconstant():
     a = np.arange(12).astype(np.float64)
@@ -1091,12 +1125,21 @@ def test_idx_to_mp():
     # T[1] = np.nan
     # T[8] = np.inf
     # T[:] = 1.0
-    I = np.random.randint(0, n - m + 1, n - m + 1)
+    l = n - m + 1
+    I = np.random.randint(0, l, l)
 
+    # `normalize == True` and `T_subseq_isconstant` is None (default)
     ref_mp = naive_idx_to_mp(I, T, m)
     cmp_mp = core._idx_to_mp(I, T, m)
     npt.assert_almost_equal(ref_mp, cmp_mp)
 
+    # `normalize == True` and `T_subseq_isconstant` is provided
+    T_subseq_isconstant = np.random.choice([True, False], l, replace=True)
+    ref_mp = naive_idx_to_mp(I, T, m, T_subseq_isconstant=T_subseq_isconstant)
+    cmp_mp = core._idx_to_mp(I, T, m, T_subseq_isconstant=T_subseq_isconstant)
+    npt.assert_almost_equal(ref_mp, cmp_mp)
+
+    # `normalize == False`
     for p in range(1, 4):
         ref_mp = naive_idx_to_mp(I, T, m, normalize=False, p=p)
         cmp_mp = core._idx_to_mp(I, T, m, normalize=False, p=p)
@@ -1514,3 +1557,415 @@ def test_gpu_searchsorted():
 def test_client_to_func():
     with pytest.raises(NotImplementedError):
         core._client_to_func(core)
+
+
+def test_apply_include():
+    D = np.random.uniform(-1000, 1000, [10, 20]).astype(np.float64)
+    ref_D = np.empty(D.shape)
+    comp_D = np.empty(D.shape)
+    for width in range(D.shape[0]):
+        for i in range(D.shape[0] - width):
+            ref_D[:, :] = D[:, :]
+            comp_D[:, :] = D[:, :]
+            include = np.asarray(range(i, i + width + 1))
+
+            naive.apply_include(D, include)
+            core._apply_include(D, include)
+
+            npt.assert_almost_equal(ref_D, comp_D)
+
+
+@pytest.mark.parametrize("T_A, T_B", test_data)
+def test_mpdist_custom_func(T_A, T_B):
+    m = 3
+
+    percentage = 0.05
+    n_A = T_A.shape[0]
+    n_B = T_B.shape[0]
+
+    ref_mpdist = naive.mpdist(T_A, T_B, m)
+
+    partial_stump = functools.partial(stump)
+    partial_k_func = functools.partial(
+        naive.mpdist_custom_func, m=m, percentage=percentage, n_A=n_A, n_B=n_B
+    )
+    comp_mpdist = core._mpdist(T_A, T_B, m, partial_stump, custom_func=partial_k_func)
+
+    npt.assert_almost_equal(ref_mpdist, comp_mpdist)
+
+
+@pytest.mark.parametrize("T_A, T_B", test_data)
+def test_mpdist_with_isconstant(T_A, T_B):
+    isconstant_custom_func = functools.partial(
+        naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+    )
+
+    m = 3
+    T_A_subseq_isconstant = isconstant_custom_func
+    T_B_subseq_isconstant = isconstant_custom_func
+
+    ref_mpdist = naive.mpdist(
+        T_A,
+        T_B,
+        m,
+        T_A_subseq_isconstant=T_A_subseq_isconstant,
+        T_B_subseq_isconstant=T_B_subseq_isconstant,
+    )
+
+    partial_stump = functools.partial(
+        stump,
+        T_A_subseq_isconstant=T_A_subseq_isconstant,
+        T_B_subseq_isconstant=T_B_subseq_isconstant,
+    )
+    comp_mpdist = core._mpdist(T_A, T_B, m, partial_stump)
+
+    npt.assert_almost_equal(ref_mpdist, comp_mpdist)
+
+
+@pytest.mark.parametrize("T_A, T_B", test_data)
+def test_compute_P_ABBA(T_A, T_B):
+    m = 3
+    n_A = T_A.shape[0]
+    n_B = T_B.shape[0]
+    ref_P_ABBA = np.empty(n_A - m + 1 + n_B - m + 1, dtype=np.float64)
+    comp_P_ABBA = np.empty(n_A - m + 1 + n_B - m + 1, dtype=np.float64)
+
+    ref_P_ABBA[: n_A - m + 1] = naive.stump(T_A, m, T_B)[:, 0]
+    ref_P_ABBA[n_A - m + 1 :] = naive.stump(T_B, m, T_A)[:, 0]
+
+    partial_stump = functools.partial(stump)
+    core._compute_P_ABBA(T_A, T_B, m, comp_P_ABBA, partial_stump)
+
+    npt.assert_almost_equal(ref_P_ABBA, comp_P_ABBA)
+
+
+@pytest.mark.parametrize("T_A, T_B", test_data)
+def test_compute_P_ABBA_with_isconstant(T_A, T_B):
+    isconstant_custom_func = functools.partial(
+        naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+    )
+
+    m = 3
+    n_A = T_A.shape[0]
+    n_B = T_B.shape[0]
+
+    T_A_subseq_isconstant = isconstant_custom_func
+    T_B_subseq_isconstant = isconstant_custom_func
+
+    ref_P_ABBA = np.empty(n_A - m + 1 + n_B - m + 1, dtype=np.float64)
+    comp_P_ABBA = np.empty(n_A - m + 1 + n_B - m + 1, dtype=np.float64)
+
+    ref_P_ABBA[: n_A - m + 1] = naive.stump(
+        T_A,
+        m,
+        T_B,
+        T_A_subseq_isconstant=T_A_subseq_isconstant,
+        T_B_subseq_isconstant=T_B_subseq_isconstant,
+    )[:, 0]
+    ref_P_ABBA[n_A - m + 1 :] = naive.stump(
+        T_B,
+        m,
+        T_A,
+        T_A_subseq_isconstant=T_B_subseq_isconstant,
+        T_B_subseq_isconstant=T_A_subseq_isconstant,
+    )[:, 0]
+
+    mp_func = functools.partial(
+        stump,
+        T_A_subseq_isconstant=T_A_subseq_isconstant,
+        T_B_subseq_isconstant=T_B_subseq_isconstant,
+    )
+    core._compute_P_ABBA(
+        T_A,
+        T_B,
+        m,
+        comp_P_ABBA,
+        mp_func,
+    )
+
+    npt.assert_almost_equal(ref_P_ABBA, comp_P_ABBA)
+
+
+def test_process_isconstant_1d():
+    isconstant_custom_func = functools.partial(
+        naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+    )
+
+    n = 64
+    m = 8
+
+    # case 1: without nan
+    T = np.random.rand(n)
+
+    T_subseq_isconstant_ref = naive.rolling_isconstant(T, m, isconstant_custom_func)
+    T_subseq_isconstant_comp = core.process_isconstant(T, m, isconstant_custom_func)
+
+    npt.assert_array_equal(T_subseq_isconstant_ref, T_subseq_isconstant_comp)
+
+    # case 2: with nan
+    T = np.random.rand(n)
+    idx = np.random.randint(n)
+    T[idx] = np.nan
+    T_subseq_isconstant = np.random.choice([True, False], n - m + 1, replace=True)
+
+    T_subseq_isfinite = core.rolling_isfinite(T, m)
+
+    T_subseq_isconstant_ref = T_subseq_isconstant & T_subseq_isfinite
+    T_subseq_isconstant_comp = core.process_isconstant(T, m, T_subseq_isconstant)
+
+    npt.assert_array_equal(T_subseq_isconstant_ref, T_subseq_isconstant_comp)
+
+
+def test_process_isconstant_2d():
+    isconstant_custom_func = functools.partial(
+        naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+    )
+
+    n = 64
+    m = 8
+    d = 3
+
+    # case 1: without nan
+    T = np.random.rand(d, n)
+    T_subseq_isconstant = [
+        None,
+        isconstant_custom_func,
+        np.random.choice([True, False], n - m + 1, replace=True),
+    ]
+
+    T_subseq_isconstant_ref = np.array(
+        [naive.rolling_isconstant(T[i], m, T_subseq_isconstant[i]) for i in range(d)]
+    )
+
+    T_subseq_isconstant_comp = core.process_isconstant(T, m, T_subseq_isconstant)
+
+    npt.assert_array_equal(T_subseq_isconstant_ref, T_subseq_isconstant_comp)
+
+    # case 2: with nan
+    T = np.random.rand(d, n)
+    i, j = np.random.choice(np.arange(n - m + 1), size=2, replace=False)
+    T[-1, i : i + m] = 0.0
+    T[-1, j : j + m] = 0.0
+    T[-1, j] = np.nan
+
+    T_subseq_isconstant = [
+        None,
+        isconstant_custom_func,
+        np.full(n - m + 1, 0, dtype=bool),
+    ]
+    T_subseq_isconstant[-1][i] = True
+    T_subseq_isconstant[-1][j] = True
+    # Although T_subseq_isconstant[-1, j] should be set to False (since...
+    # the subquence `T[-1, j:j+m]` is not finte), it is intentially set
+    # to True to test the functionality of `process_isconstant` in handling
+    # such conflict.
+
+    T_subseq_isconstant_ref = np.array(
+        [naive.rolling_isconstant(T[i], m, T_subseq_isconstant[i]) for i in range(d)]
+    )
+    T_subseq_isconstant_ref = T_subseq_isconstant_ref & core.rolling_isfinite(T, m)
+
+    T_subseq_isconstant_comp = core.process_isconstant(T, m, T_subseq_isconstant)
+
+    npt.assert_array_equal(T_subseq_isconstant_ref, T_subseq_isconstant_comp)
+
+
+def test_process_isconstant_1d_default():
+    # test the default value of `T_subseq_isconstant` in `process_isconstant`
+    n = 64
+    m = 8
+
+    # case 1: without nan
+    T = np.random.rand(n)
+    T[:m] = 0.5  # constant subsequence
+
+    T_subseq_isconstant_ref = naive.rolling_isconstant(T, m, a_subseq_isconstant=None)
+    T_subseq_isconstant_comp = core.process_isconstant(T, m, T_subseq_isconstant=None)
+
+    npt.assert_array_equal(T_subseq_isconstant_ref, T_subseq_isconstant_comp)
+
+    # case 2: with nan
+    T = np.random.rand(n)
+    T[:m] = 0.5  # constant subsequence
+    T[-m:] = np.nan  # non-finite subsequence
+
+    T_subseq_isconstant_ref = naive.rolling_isconstant(T, m, a_subseq_isconstant=None)
+    T_subseq_isconstant_comp = core.process_isconstant(T, m, T_subseq_isconstant=None)
+
+    npt.assert_array_equal(T_subseq_isconstant_ref, T_subseq_isconstant_comp)
+
+
+def test_update_incremental_PI_egressFalse():
+    # This tests the function `core._update_incremental_PI`
+    # when `egress` is False, meaning new data point is being
+    # appended to the historical data.
+    T = np.random.rand(64)
+    t = np.random.rand()  # new datapoint
+    T_new = np.append(T, t)
+
+    m = 3
+    excl_zone = int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))
+
+    for k in range(1, 4):
+        # ref
+        mp_ref = naive.stump(T_new, m, row_wise=True, k=k)
+        P_ref = mp_ref[:, :k].astype(np.float64)
+        I_ref = mp_ref[:, k : 2 * k].astype(np.int64)
+
+        # comp
+        mp = naive.stump(T, m, row_wise=True, k=k)
+        P_comp = mp[:, :k].astype(np.float64)
+        I_comp = mp[:, k : 2 * k].astype(np.int64)
+
+        # Because of the new data point, the length of matrix profile
+        # and matrix profile indices should be increased by one.
+        P_comp = np.pad(
+            P_comp,
+            [(0, 1), (0, 0)],
+            mode="constant",
+            constant_values=np.inf,
+        )
+        I_comp = np.pad(
+            I_comp,
+            [(0, 1), (0, 0)],
+            mode="constant",
+            constant_values=-1,
+        )
+
+        D = core.mass(T_new[-m:], T_new)
+        core._update_incremental_PI(D, P_comp, I_comp, excl_zone, n_appended=0)
+
+        # assertion
+        npt.assert_almost_equal(P_ref, P_comp)
+        npt.assert_almost_equal(I_ref, I_comp)
+
+
+def test_update_incremental_PI_egressTrue():
+    T = np.random.rand(64)
+    t = np.random.rand()  # new data point
+    m = 3
+    excl_zone = int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))
+
+    for k in range(1, 4):
+        # ref
+        # In egress=True mode, a new data point, t, is being appended
+        # to the historical data, T, while the oldest data point is
+        # being removed. Therefore, the first  subsequence in T
+        # and the last subsequence does not get a chance to meet each
+        # other. Therefore, we need to exclude that distance.
+
+        T_with_t = np.append(T, t)
+        D = naive.distance_matrix(T_with_t, T_with_t, m)
+        D[-1, 0] = np.inf
+        D[0, -1] = np.inf
+
+        l = len(T_with_t) - m + 1
+        P = np.empty((l, k), dtype=np.float64)
+        I = np.empty((l, k), dtype=np.int64)
+        for i in range(l):
+            core.apply_exclusion_zone(D[i], i, excl_zone, np.inf)
+            IDX = np.argsort(D[i], kind="mergesort")[:k]
+            I[i] = IDX
+            P[i] = D[i, IDX]
+
+        P_ref = P[1:].copy()
+        I_ref = I[1:].copy()
+
+        # comp
+        mp = naive.stump(T, m, row_wise=True, k=k)
+        P_comp = mp[:, :k].astype(np.float64)
+        I_comp = mp[:, k : 2 * k].astype(np.int64)
+
+        P_comp[:-1] = P_comp[1:]
+        P_comp[-1] = np.inf
+        I_comp[:-1] = I_comp[1:]
+        I_comp[-1] = -1
+
+        T_new = np.append(T[1:], t)
+        D = core.mass(T_new[-m:], T_new)
+        core._update_incremental_PI(D, P_comp, I_comp, excl_zone, n_appended=1)
+
+        # assertion
+        npt.assert_almost_equal(P_ref, P_comp)
+        npt.assert_almost_equal(I_ref, I_comp)
+
+
+def test_update_incremental_PI_egressTrue_MemoryCheck():
+    # This test function is to ensure that the function
+    # `core._update_incremental_PI` does not forget the
+    # nearest neighbors that were pointing to those old data
+    # points that are removed in the `egress=True` mode.
+    # This can be tested by inserting the same subsequence, s, in the beginning,
+    # middle, and end of the time series. This is to allow us to know which
+    # neighbor is the nearest neighbor to each of those three subsequences.
+
+    # In the `egress=True` mode, the first element of the time series is removed and
+    # a new data point is appended. However, the updated matrix profile index for the
+    # middle subsequence `s` should still refer to  the first subsequence in
+    # the historical data.
+    seed = 0
+    np.random.seed(seed)
+
+    T = np.random.rand(64)
+    m = 3
+    excl_zone = int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))
+
+    s = np.random.rand(m)
+    T[:m] = s
+    T[30 : 30 + m] = s
+    T[-m:] = s
+
+    t = np.random.rand()  # new data point
+    T_with_t = np.append(T, t)
+
+    # In egress=True mode, a new data point, t, is being appended
+    # to the historical data, T, while the oldest data point is
+    # being removed. Therefore, the first  subsequence in T
+    # and the last subsequence does not get a chance to meet each
+    # other. Therefore, their pairwise distances should be excluded
+    # from the distance matrix.
+    D = naive.distance_matrix(T_with_t, T_with_t, m)
+    D[-1, 0] = np.inf
+    D[0, -1] = np.inf
+
+    l = len(T_with_t) - m + 1
+    for i in range(l):
+        core.apply_exclusion_zone(D[i], i, excl_zone, np.inf)
+
+    T_new = np.append(T[1:], t)
+    dist_profile = naive.distance_profile(T_new[-m:], T_new, m)
+    core.apply_exclusion_zone(dist_profile, len(dist_profile) - 1, excl_zone, np.inf)
+
+    for k in range(1, 4):
+        # ref
+        P = np.empty((l, k), dtype=np.float64)
+        I = np.empty((l, k), dtype=np.int64)
+        for i in range(l):
+            IDX = np.argsort(D[i], kind="mergesort")[:k]
+            I[i] = IDX
+            P[i] = D[i, IDX]
+
+        P_ref = P[1:].copy()
+        I_ref = I[1:].copy()
+
+        # comp
+        mp = naive.stump(T, m, row_wise=True, k=k)
+        P_comp = mp[:, :k].astype(np.float64)
+        I_comp = mp[:, k : 2 * k].astype(np.int64)
+
+        P_comp[:-1] = P_comp[1:]
+        P_comp[-1] = np.inf
+        I_comp[:-1] = I_comp[1:]
+        I_comp[-1] = -1
+        core._update_incremental_PI(
+            dist_profile, P_comp, I_comp, excl_zone, n_appended=1
+        )
+
+        npt.assert_almost_equal(P_ref, P_comp)
+        npt.assert_almost_equal(I_ref, I_comp)
+
+
+def test_check_self_join():
+    with pytest.warns(UserWarning):
+        ignore_trivial = False
+        core.check_self_join(ignore_trivial)

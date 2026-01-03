@@ -2,11 +2,14 @@
 # Copyright 2019 TD Ameritrade. Released under the terms of the 3-Clause BSD license.
 # STUMPY is a trademark of TD Ameritrade IP Company, Inc. All rights reserved.
 
-import numpy as np
-import math
 import functools
+import math
 
-from . import core, aamp, aamped, mpdist
+import numpy as np
+
+from . import core
+from .aamp import aamp
+from .aamped import aamped
 
 
 def _aampdist_vect(
@@ -36,14 +39,14 @@ def _aampdist_vect(
     percentage : float, 0.05
         The percentage of distances that will be used to report `mpdist`. The value
         is between 0.0 and 1.0. This parameter is ignored when `k` is not `None` or when
-        `k_func` is not None.
+        `custom_func` is not None.
 
     k : int, default None
         Specify the `k`th value in the concatenated matrix profiles to return. When `k`
         is not `None`, then the `percentage` parameter is ignored. This parameter is
         ignored when `custom_func` is not None.
 
-    custom_func : object, default None
+    custom_func : function, default None
         A custom user defined function for selecting the desired value from the
         unsorted `P_ABBA` array. This function may need to leverage `functools.partial`
         and should take `P_ABBA` as its only input parameter and return a single
@@ -51,7 +54,15 @@ def _aampdist_vect(
         `custom_func` is not None.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
+
+    Returns
+    -------
+    MPdist_vect : numpy.ndarray
+        The non-normalized (i.e., without z-normalization) matrix profile distance
+        measure vector
     """
     j = Q.shape[0] - m + 1  # `k` is reserved for `P_ABBA` selection
     l = T.shape[0] - m + 1
@@ -110,7 +121,9 @@ def aampdist(T_A, T_B, m, percentage=0.05, k=None, p=2.0):
         is not `None`, then the `percentage` parameter is ignored.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -125,7 +138,7 @@ def aampdist(T_A, T_B, m, percentage=0.05, k=None, p=2.0):
     See Section III
     """
     partial_mp_func = functools.partial(aamp, p=p)
-    return mpdist._mpdist(T_A, T_B, m, percentage, k, mp_func=partial_mp_func)
+    return core._mpdist(T_A, T_B, m, partial_mp_func, percentage, k)
 
 
 def aampdisted(client, T_A, T_B, m, percentage=0.05, k=None, p=2.0):
@@ -167,7 +180,9 @@ def aampdisted(client, T_A, T_B, m, percentage=0.05, k=None, p=2.0):
         is not `None`, then the `percentage` parameter is ignored.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -182,6 +197,4 @@ def aampdisted(client, T_A, T_B, m, percentage=0.05, k=None, p=2.0):
     See Section III
     """
     partial_mp_func = functools.partial(aamped, p=p)
-    return mpdist._mpdist(
-        T_A, T_B, m, percentage, k, client=client, mp_func=partial_mp_func
-    )
+    return core._mpdist(T_A, T_B, m, partial_mp_func, percentage, k, client=client)

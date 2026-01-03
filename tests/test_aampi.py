@@ -1,9 +1,10 @@
+import naive
 import numpy as np
 import numpy.testing as npt
 import pandas as pd
-from stumpy import aampi, core, config
 import pytest
-import naive
+
+from stumpy import aampi, config, core
 
 substitution_locations = [(slice(0, 0), 0, -1, slice(1, 3), [0, 3])]
 substitution_values = [np.nan, np.inf]
@@ -1145,3 +1146,64 @@ def test_aampi_self_join_egress_KNN():
                 npt.assert_almost_equal(ref_I, comp_I)
                 npt.assert_almost_equal(ref_left_P, comp_left_P)
                 npt.assert_almost_equal(ref_left_I, comp_left_I)
+
+
+def test_aampi_self_join_egress_passing_mp():
+    m = 3
+
+    for p in [1.0, 2.0, 3.0]:
+        seed = np.random.randint(100000)
+        np.random.seed(seed)
+
+        n = 30
+        T = np.random.rand(n)
+        mp = naive.aamp(T, m, p=p)
+
+        ref_mp = naive.aampi_egress(T, m, p=p, mp=mp)
+        ref_P = ref_mp.P_.copy()
+        ref_I = ref_mp.I_
+        ref_left_P = ref_mp.left_P_.copy()
+        ref_left_I = ref_mp.left_I_
+
+        stream = aampi(T, m, egress=True, p=p, mp=mp)
+
+        comp_P = stream.P_.copy()
+        comp_I = stream.I_
+        comp_left_P = stream.left_P_.copy()
+        comp_left_I = stream.left_I_
+
+        naive.replace_inf(ref_P)
+        naive.replace_inf(ref_left_P)
+        naive.replace_inf(comp_P)
+        naive.replace_inf(comp_left_P)
+
+        npt.assert_almost_equal(ref_P, comp_P)
+        npt.assert_almost_equal(ref_I, comp_I)
+        npt.assert_almost_equal(ref_left_P, comp_left_P)
+        npt.assert_almost_equal(ref_left_I, comp_left_I)
+
+        for i in range(34):
+            t = np.random.rand()
+
+            ref_mp.update(t)
+            stream.update(t)
+
+            comp_P = stream.P_.copy()
+            comp_I = stream.I_
+            comp_left_P = stream.left_P_.copy()
+            comp_left_I = stream.left_I_
+
+            ref_P = ref_mp.P_.copy()
+            ref_I = ref_mp.I_
+            ref_left_P = ref_mp.left_P_.copy()
+            ref_left_I = ref_mp.left_I_
+
+            naive.replace_inf(ref_P)
+            naive.replace_inf(ref_left_P)
+            naive.replace_inf(comp_P)
+            naive.replace_inf(comp_left_P)
+
+            npt.assert_almost_equal(ref_P, comp_P)
+            npt.assert_almost_equal(ref_I, comp_I)
+            npt.assert_almost_equal(ref_left_P, comp_left_P)
+            npt.assert_almost_equal(ref_left_I, comp_left_I)

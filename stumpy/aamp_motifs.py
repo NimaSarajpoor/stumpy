@@ -6,7 +6,7 @@ import warnings
 
 import numpy as np
 
-from . import core, config
+from . import config, core
 
 
 def _aamp_motifs(
@@ -43,7 +43,9 @@ def _aamp_motifs(
         `np.nan`/`np.inf` value (False)
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     excl_zone : int
         Size of the exclusion zone
@@ -75,8 +77,8 @@ def _aamp_motifs(
         The absolute tolerance parameter. This value will be added to `max_distance`
         when comparing distances between subsequences.
 
-    Return
-    ------
+    Returns
+    -------
     motif_distances : numpy.ndarray
         The distances corresponding to a set of subsequence matches for each motif.
         Note that the first column always corresponds to the distance for the
@@ -131,6 +133,8 @@ def _aamp_motifs(
             query_matches = np.array([[np.nan, candidate_idx]])
 
         for idx in query_matches[:, 1]:
+            # Since the query motif is also included as the first item in the list of
+            # `query_matches`, the exclusion zone is also applied to the query motif!
             core.apply_exclusion_zone(P, int(idx), excl_zone, np.inf)
 
         candidate_idx = np.argmin(P[-1])
@@ -227,10 +231,12 @@ def aamp_motifs(
         when comparing distances between subsequences.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
-    Return
-    ------
+    Returns
+    -------
     motif_distances : numpy.ndarray
         The distances corresponding to a set of subsequence matches for each motif.
         Note that the first column always corresponds to the distance for the
@@ -264,7 +270,7 @@ def aamp_motifs(
     m = T.shape[-1] - P.shape[-1] + 1
     excl_zone = int(np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM))
     if max_matches is None:  # pragma: no cover
-        max_matches = np.inf
+        max_matches = P.shape[-1]
     if cutoff is None:  # pragma: no cover
         P_copy = P.copy().astype(np.float64)
         P_copy[np.isinf(P_copy)] = np.nan
@@ -280,8 +286,8 @@ def aamp_motifs(
         msg += f"(e.g., cutoff={suggested_cutoff})."
         warnings.warn(msg)
 
-    T, T_subseq_isfinite = core.preprocess_non_normalized(T[np.newaxis, :], m)
-    P = P[np.newaxis, :].astype(np.float64)
+    T, T_subseq_isfinite = core.preprocess_non_normalized(np.expand_dims(T, 0), m)
+    P = np.expand_dims(P, 0).astype(np.float64)
 
     motif_distances, motif_indices = _aamp_motifs(
         T,
@@ -362,7 +368,9 @@ def aamp_match(
         that the self-match will be returned first.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -375,9 +383,9 @@ def aamp_match(
         raise ValueError("Q contains illegal values (NaN or inf)")
 
     if len(Q.shape) == 1:
-        Q = Q[np.newaxis, :]
+        Q = np.expand_dims(Q, 0)
     if len(T.shape) == 1:
-        T = T[np.newaxis, :]
+        T = np.expand_dims(T, 0)
 
     d, n = T.shape
     m = Q.shape[1]
@@ -386,7 +394,7 @@ def aamp_match(
     if T_subseq_isfinite is None:
         T, T_subseq_isfinite = core.preprocess_non_normalized(T, m)
     if len(T_subseq_isfinite.shape) == 1:
-        T_subseq_isfinite = T_subseq_isfinite[np.newaxis, :]
+        T_subseq_isfinite = np.expand_dims(T_subseq_isfinite, 0)
 
     D = np.empty((d, n - m + 1))
     for i in range(d):

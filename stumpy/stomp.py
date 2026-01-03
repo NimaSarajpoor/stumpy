@@ -6,7 +6,7 @@ import warnings
 
 import numpy as np
 
-from . import core, stamp, config
+from . import config, core, stamp
 
 
 def _stomp(T_A, m, T_B=None, ignore_trivial=True):
@@ -70,6 +70,7 @@ def _stomp(T_A, m, T_B=None, ignore_trivial=True):
 
     if T_B is None:
         T_B = T_A
+        core.check_self_join(ignore_trivial)
         ignore_trivial = True
 
     T_A, μ_Q, σ_Q, Q_subseq_isconstant = core.preprocess(T_A, m)
@@ -81,8 +82,13 @@ def _stomp(T_A, m, T_B=None, ignore_trivial=True):
     if T_B.ndim != 1:  # pragma: no cover
         raise ValueError(f"T_B is {T_B.ndim}-dimensional and must be 1-dimensional. ")
 
-    core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
     ignore_trivial = core.check_ignore_trivial(T_A, T_B, ignore_trivial)
+    if ignore_trivial:  # self-join
+        core.check_window_size(
+            m, max_size=min(T_A.shape[0], T_B.shape[0]), n=T_A.shape[0]
+        )
+    else:  # AB-join
+        core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
 
     n = T_A.shape[0]
     l = n - m + 1
@@ -100,13 +106,35 @@ def _stomp(T_A, m, T_B=None, ignore_trivial=True):
     else:
         if ignore_trivial:
             P, I = stamp._mass_PI(
-                T_A[:m], T_B, M_T, Σ_T, T_subseq_isconstant, 0, excl_zone
+                T_A[:m],
+                T_B,
+                M_T,
+                Σ_T,
+                0,
+                excl_zone,
+                T_subseq_isconstant=T_subseq_isconstant,
+                Q_subseq_isconstant=Q_subseq_isconstant[[0]],
             )
             PR, IR = stamp._mass_PI(
-                T_A[:m], T_B, M_T, Σ_T, T_subseq_isconstant, 0, excl_zone, right=True
+                T_A[:m],
+                T_B,
+                M_T,
+                Σ_T,
+                0,
+                excl_zone,
+                right=True,
+                T_subseq_isconstant=T_subseq_isconstant,
+                Q_subseq_isconstant=Q_subseq_isconstant[[0]],
             )
         else:
-            P, I = stamp._mass_PI(T_A[:m], T_B, M_T, Σ_T, T_subseq_isconstant)
+            P, I = stamp._mass_PI(
+                T_A[:m],
+                T_B,
+                M_T,
+                Σ_T,
+                T_subseq_isconstant=T_subseq_isconstant,
+                Q_subseq_isconstant=Q_subseq_isconstant[[0]],
+            )
             IR = -1  # No left and right matrix profile available
 
     out[0] = P, I, -1, IR
@@ -114,10 +142,10 @@ def _stomp(T_A, m, T_B=None, ignore_trivial=True):
     QT = core.sliding_dot_product(T_A[:m], T_B)
     QT_first = core.sliding_dot_product(T_B[:m], T_A)
 
-    k = T_B.shape[0] - m + 1
+    w = T_B.shape[0] - m + 1
     for i in range(1, l):
         QT[1:] = (
-            QT[: k - 1] - T_A[i - 1] * T_B[: k - 1] + T_A[i - 1 + m] * T_B[-(k - 1) :]
+            QT[: w - 1] - T_A[i - 1] * T_B[: w - 1] + T_A[i - 1 + m] * T_B[-(w - 1) :]
         )
         QT[0] = QT_first[i]
 

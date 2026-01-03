@@ -1,15 +1,21 @@
+import naive
 import numpy as np
 import numpy.testing as npt
 import pandas as pd
-from stumpy import config, aamped
-from dask.distributed import Client, LocalCluster
 import pytest
-import naive
+from dask.distributed import Client, LocalCluster
+
+from stumpy import aamped, config
 
 
 @pytest.fixture(scope="module")
 def dask_cluster():
-    cluster = LocalCluster(n_workers=2, threads_per_worker=2)
+    cluster = LocalCluster(
+        n_workers=2,
+        threads_per_worker=2,
+        dashboard_address=None,
+        worker_dashboard_address=None,
+    )
     yield cluster
     cluster.close()
 

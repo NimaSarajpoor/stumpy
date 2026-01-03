@@ -4,7 +4,9 @@
 
 import numpy as np
 
-from . import core, aamp, aamped
+from . import core
+from .aamp import aamp
+from .aamped import aamped
 
 
 def _aamp_across_series_nearest_neighbors(
@@ -34,7 +36,9 @@ def _aamp_across_series_nearest_neighbors(
         A list of rolling window `T_subseq_isfinite` for each time series in `Ts`
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -91,7 +95,9 @@ def _get_aamp_central_motif(
         A list of rolling window `T_subseq_isfinite` for each time series in `Ts`
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -153,7 +159,9 @@ def _aamp_ostinato(
         A list of rolling window `T_subseq_isfinite` for each time series in `Ts`
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     client : client, default None
         A Dask or Ray Distributed client. Setting up a distributed cluster is beyond
@@ -162,11 +170,11 @@ def _aamp_ostinato(
 
     device_id : int or list, default None
         The (GPU) device number to use. The default value is `0`. A list of
-        valid device ids (int) may also be provided for parallel GPU-STUMP
+        valid device ids (``int``) may also be provided for parallel GPU-STUMP
         computation. A list of all valid device ids can be obtained by
         executing `[device.id for device in numba.cuda.list_devices()]`.
 
-    mp_func : object, default stump
+    mp_func : function, default stump
         Specify a custom matrix profile function to use for computing matrix profiles
 
     Returns
@@ -258,7 +266,9 @@ def aamp_ostinato(Ts, m, p=2.0):
         Window size
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -266,11 +276,11 @@ def aamp_ostinato(Ts, m, p=2.0):
         Radius of the most central consensus motif
 
     central_Ts_idx : int
-        The time series index in `Ts` which contains the most central consensus motif
+        The time series index in `Ts` that contains the most central consensus motif
 
     central_subseq_idx : int
-        The subsequence index within time series `Ts[central_motif_Ts_idx]` the contains
-        most central consensus motif
+        The subsequence index within time series `Ts[central_motif_Ts_idx]` that
+        contains the most central consensus motif
 
     Notes
     -----
@@ -295,15 +305,16 @@ def aamp_ostinato(Ts, m, p=2.0):
     if not isinstance(Ts, list):  # pragma: no cover
         raise ValueError(f"`Ts` is of type `{type(Ts)}` but a `list` is expected")
 
+    Ts_copy = [None] * len(Ts)
     Ts_subseq_isfinite = [None] * len(Ts)
     for i, T in enumerate(Ts):
         (
-            Ts[i],
+            Ts_copy[i],
             Ts_subseq_isfinite[i],
-        ) = core.preprocess_non_normalized(T, m)
+        ) = core.preprocess_non_normalized(T, m, copy=True)
 
     bsf_radius, bsf_Ts_idx, bsf_subseq_idx = _aamp_ostinato(
-        Ts, m, Ts_subseq_isfinite, p
+        Ts_copy, m, Ts_subseq_isfinite, p
     )
 
     (
@@ -311,7 +322,7 @@ def aamp_ostinato(Ts, m, p=2.0):
         central_Ts_idx,
         central_subseq_idx,
     ) = _get_aamp_central_motif(
-        Ts, bsf_radius, bsf_Ts_idx, bsf_subseq_idx, m, Ts_subseq_isfinite, p
+        Ts_copy, bsf_radius, bsf_Ts_idx, bsf_subseq_idx, m, Ts_subseq_isfinite, p
     )
 
     return central_radius, central_Ts_idx, central_subseq_idx
@@ -340,7 +351,9 @@ def aamp_ostinatoed(client, Ts, m, p=2.0):
         Window size
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -348,11 +361,11 @@ def aamp_ostinatoed(client, Ts, m, p=2.0):
         Radius of the most central consensus motif
 
     central_Ts_idx : int
-        The time series index in `Ts` which contains the most central consensus motif
+        The time series index in `Ts` that contains the most central consensus motif
 
     central_subseq_idx : int
-        The subsequence index within time series `Ts[central_motif_Ts_idx]` the contains
-        most central consensus motif
+        The subsequence index within time series `Ts[central_motif_Ts_idx]` that
+        contains the most central consensus motif
 
     Notes
     -----
@@ -377,15 +390,16 @@ def aamp_ostinatoed(client, Ts, m, p=2.0):
     if not isinstance(Ts, list):  # pragma: no cover
         raise ValueError(f"`Ts` is of type `{type(Ts)}` but a `list` is expected")
 
+    Ts_copy = [None] * len(Ts)
     Ts_subseq_isfinite = [None] * len(Ts)
     for i, T in enumerate(Ts):
         (
-            Ts[i],
+            Ts_copy[i],
             Ts_subseq_isfinite[i],
-        ) = core.preprocess_non_normalized(T, m)
+        ) = core.preprocess_non_normalized(T, m, copy=True)
 
     bsf_radius, bsf_Ts_idx, bsf_subseq_idx = _aamp_ostinato(
-        Ts,
+        Ts_copy,
         m,
         Ts_subseq_isfinite,
         p=p,
@@ -398,7 +412,7 @@ def aamp_ostinatoed(client, Ts, m, p=2.0):
         central_Ts_idx,
         central_subseq_idx,
     ) = _get_aamp_central_motif(
-        Ts,
+        Ts_copy,
         bsf_radius,
         bsf_Ts_idx,
         bsf_subseq_idx,

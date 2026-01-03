@@ -1,17 +1,19 @@
+import functools
+
+import naive
 import numpy as np
 import numpy.testing as npt
 import pandas as pd
-from stumpy import core, config
-from stumpy import mstump, subspace, mdl
+import polars as pl
+import pytest
+
+from stumpy import config, core, mdl, mstump, subspace
 from stumpy.mstump import (
-    _multi_mass,
-    multi_distance_profile,
     _get_first_mstump_profile,
     _get_multi_QT,
-    _apply_include,
+    _multi_mass,
+    multi_distance_profile,
 )
-import pytest
-import naive
 
 
 def naive_rolling_window_dot_product(Q, T):
@@ -31,22 +33,6 @@ substitution_locations = [(slice(0, 0), 0, -1, slice(1, 3), [0, 3])]
 substitution_values = [np.nan, np.inf]
 
 
-def test_apply_include():
-    D = np.random.uniform(-1000, 1000, [10, 20]).astype(np.float64)
-    ref_D = np.empty(D.shape)
-    comp_D = np.empty(D.shape)
-    for width in range(D.shape[0]):
-        for i in range(D.shape[0] - width):
-            ref_D[:, :] = D[:, :]
-            comp_D[:, :] = D[:, :]
-            include = np.asarray(range(i, i + width + 1))
-
-            naive.apply_include(D, include)
-            _apply_include(D, include)
-
-            npt.assert_almost_equal(ref_D, comp_D)
-
-
 def test_multi_mass_seeded():
     np.random.seed(5)
     T = np.random.uniform(-1000, 1000, [3, 10]).astype(np.float64)
@@ -60,8 +46,20 @@ def test_multi_mass_seeded():
 
     T_subseq_isconstant = core.rolling_isconstant(T, m)
     M_T, Σ_T = core.compute_mean_std(T, m)
+
+    Q_subseq_isconstant = np.expand_dims(T_subseq_isconstant[:, trivial_idx], 1)
+
     comp = _multi_mass(
-        Q, T, m, M_T, Σ_T, M_T[:, trivial_idx], Σ_T[:, trivial_idx], T_subseq_isconstant
+        Q,
+        T,
+        m,
+        M_T,
+        Σ_T,
+        M_T[:, trivial_idx],
+        Σ_T[:, trivial_idx],
+        T_subseq_isconstant=T_subseq_isconstant,
+        Q_subseq_isconstant=Q_subseq_isconstant,
+        query_idx=trivial_idx,
     )
 
     npt.assert_almost_equal(ref, comp, decimal=config.STUMPY_TEST_PRECISION)
@@ -77,8 +75,20 @@ def test_multi_mass(T, m):
 
     T_subseq_isconstant = core.rolling_isconstant(T, m)
     M_T, Σ_T = core.compute_mean_std(T, m)
+
+    Q_subseq_isconstant = np.expand_dims(T_subseq_isconstant[:, trivial_idx], 1)
+
     comp = _multi_mass(
-        Q, T, m, M_T, Σ_T, M_T[:, trivial_idx], Σ_T[:, trivial_idx], T_subseq_isconstant
+        Q,
+        T,
+        m,
+        M_T,
+        Σ_T,
+        M_T[:, trivial_idx],
+        Σ_T[:, trivial_idx],
+        T_subseq_isconstant=T_subseq_isconstant,
+        Q_subseq_isconstant=Q_subseq_isconstant,
+        query_idx=trivial_idx,
     )
 
     npt.assert_almost_equal(ref, comp, decimal=config.STUMPY_TEST_PRECISION)
@@ -107,7 +117,17 @@ def test_get_first_mstump_profile(T, m):
     T_subseq_isconstant = core.rolling_isconstant(T, m)
     M_T, Σ_T = core.compute_mean_std(T, m)
     comp_P, comp_I = _get_first_mstump_profile(
-        start, T, T, m, excl_zone, M_T, Σ_T, M_T, Σ_T, T_subseq_isconstant
+        start,
+        T,
+        T,
+        m,
+        excl_zone,
+        M_T,
+        Σ_T,
+        M_T,
+        Σ_T,
+        T_subseq_isconstant,
+        T_subseq_isconstant,
     )
 
     npt.assert_almost_equal(ref_P, comp_P)
@@ -286,6 +306,12 @@ def test_mstump_wrapper(T, m):
     npt.assert_almost_equal(ref_P, comp_P)
     npt.assert_almost_equal(ref_I, comp_I)
 
+    df = pl.DataFrame(T.T)
+    comp_P, comp_I = mstump(df, m)
+
+    npt.assert_almost_equal(ref_P, comp_P)
+    npt.assert_almost_equal(ref_I, comp_I)
+
 
 @pytest.mark.parametrize("T, m", test_data)
 def test_mstump_wrapper_include(T, m):
@@ -377,3 +403,207 @@ def test_mstump_nan_self_join_all_dimensions(T, m, substitute, substitution_loca
 
         npt.assert_almost_equal(ref_P, comp_P)
         npt.assert_almost_equal(ref_I, comp_I)
+
+
+def test_multi_mass_with_isconstant():
+    d = 3
+    n = 64
+    m = 8
+
+    # case 1: Q is not multi-subseq of T
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = np.random.choice(
+        [True, False], size=(d, n - m + 1), replace=True
+    )
+
+    Q = np.random.uniform(-1000, 1000, size=[d, m])
+    Q_subseq_isconstant = np.random.choice([True, False], size=(d, 1), replace=True)
+
+    ref = naive.multi_mass(
+        Q,
+        T,
+        m,
+        T_subseq_isconstant=T_subseq_isconstant,
+        Q_subseq_isconstant=Q_subseq_isconstant,
+    )
+
+    T_subseq_isconstant = core.rolling_isconstant(T, m, T_subseq_isconstant)
+    M_T, Σ_T = core.compute_mean_std(T, m)
+
+    Q_subseq_isconstant = core.rolling_isconstant(Q, m, Q_subseq_isconstant)
+    μ_Q, σ_Q = core.compute_mean_std(Q, m)
+
+    comp = _multi_mass(
+        Q,
+        T,
+        m,
+        M_T,
+        Σ_T,
+        μ_Q,
+        σ_Q,
+        T_subseq_isconstant=T_subseq_isconstant,
+        Q_subseq_isconstant=Q_subseq_isconstant,
+    )
+
+    npt.assert_almost_equal(ref, comp, decimal=config.STUMPY_TEST_PRECISION)
+
+    # case 2: Q is a multi-subseq of T
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = np.random.choice(
+        [True, False], size=(d, n - m + 1), replace=True
+    )
+
+    query_idx = np.random.randint(0, n - m + 1)
+    Q = T[:, query_idx : query_idx + m]
+    Q_subseq_isconstant = np.expand_dims(T_subseq_isconstant[:, query_idx], 1)
+
+    ref = naive.multi_mass(
+        Q,
+        T,
+        m,
+        T_subseq_isconstant=T_subseq_isconstant,
+        Q_subseq_isconstant=Q_subseq_isconstant,
+    )
+
+    T_subseq_isconstant = core.rolling_isconstant(T, m, T_subseq_isconstant)
+    M_T, Σ_T = core.compute_mean_std(T, m)
+
+    Q_subseq_isconstant = core.rolling_isconstant(Q, m, Q_subseq_isconstant)
+    μ_Q, σ_Q = core.compute_mean_std(Q, m)
+
+    comp = _multi_mass(
+        Q,
+        T,
+        m,
+        M_T,
+        Σ_T,
+        μ_Q,
+        σ_Q,
+        T_subseq_isconstant=T_subseq_isconstant,
+        Q_subseq_isconstant=Q_subseq_isconstant,
+        query_idx=query_idx,
+    )
+
+    npt.assert_almost_equal(ref, comp, decimal=config.STUMPY_TEST_PRECISION)
+
+
+def test_multi_distance_profile_with_isconstant_case1():
+    # case1: `T_subseq_isconstant` is `np.ndarray`
+    d = 3
+    n = 64
+    m = 8
+
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = np.random.choice(
+        [True, False], size=(d, n - m + 1), replace=True
+    )
+
+    for query_idx in range(n - m + 1):
+        ref_D = naive.multi_distance_profile(
+            query_idx, T, m, T_subseq_isconstant=T_subseq_isconstant
+        )
+
+        comp_D = multi_distance_profile(
+            query_idx, T, m, T_subseq_isconstant=T_subseq_isconstant
+        )
+
+        npt.assert_almost_equal(ref_D, comp_D)
+
+
+def test_multi_distance_profile_with_isconstant_case2():
+    # case2: `T_subseq_isconstant` is `function`
+    d = 3
+    n = 64
+    m = 8
+
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = functools.partial(
+        naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+    )
+
+    query_idx = np.random.randint(0, n - m + 1)
+
+    ref_D = naive.multi_distance_profile(
+        query_idx, T, m, T_subseq_isconstant=T_subseq_isconstant
+    )
+
+    comp_D = multi_distance_profile(
+        query_idx, T, m, T_subseq_isconstant=T_subseq_isconstant
+    )
+
+    npt.assert_almost_equal(ref_D, comp_D)
+
+
+def test_multi_distance_profile_with_isconstant_case3():
+    # case3: `T_subseq_isconstant` is of type `list`
+    d = 3
+    n = 64
+    m = 8
+
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = [
+        None,
+        np.random.choice([True, False], n - m + 1, replace=True),
+        functools.partial(
+            naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+        ),
+    ]
+
+    query_idx = np.random.randint(0, n - m + 1)
+
+    ref_D = naive.multi_distance_profile(
+        query_idx, T, m, T_subseq_isconstant=T_subseq_isconstant
+    )
+    comp_D = multi_distance_profile(
+        query_idx, T, m, T_subseq_isconstant=T_subseq_isconstant
+    )
+
+    npt.assert_almost_equal(ref_D, comp_D)
+
+
+def test_mstump_with_isconstant_case1():
+    # case1: `T_subseq_isconstant` is a (partial) function
+    d = 3
+    n = 64
+    m = 8
+
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = functools.partial(
+        naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+    )
+
+    excl_zone = int(np.ceil(m / 4))
+
+    ref_P, ref_I = naive.mstump(
+        T, m, excl_zone, T_subseq_isconstant=T_subseq_isconstant
+    )
+    comp_P, comp_I = mstump(T, m, T_subseq_isconstant=T_subseq_isconstant)
+
+    npt.assert_almost_equal(ref_P, comp_P)
+    npt.assert_almost_equal(ref_I, comp_I)
+
+
+def test_mstump_with_isconstant_case2():
+    # case2: `T_subseq_isconstant` is a list
+    d = 3
+    n = 64
+    m = 8
+
+    T = np.random.uniform(-1000, 1000, size=[d, n])
+    T_subseq_isconstant = [
+        None,
+        np.random.choice([True, False], n - m + 1, replace=True),
+        functools.partial(
+            naive.isconstant_func_stddev_threshold, quantile_threshold=0.05
+        ),
+    ]
+
+    excl_zone = int(np.ceil(m / 4))
+
+    ref_P, ref_I = naive.mstump(
+        T, m, excl_zone, T_subseq_isconstant=T_subseq_isconstant
+    )
+    comp_P, comp_I = mstump(T, m, T_subseq_isconstant=T_subseq_isconstant)
+
+    npt.assert_almost_equal(ref_P, comp_P)
+    npt.assert_almost_equal(ref_I, comp_I)

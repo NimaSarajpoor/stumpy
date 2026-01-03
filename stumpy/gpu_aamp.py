@@ -8,7 +8,8 @@ import os
 import numpy as np
 from numba import cuda
 
-from . import core, config
+from . import config, core
+from .mparray import mparray
 
 
 @cuda.jit(
@@ -17,7 +18,7 @@ from . import core, config
     "i8[:], i8, i8)"
 )
 def _compute_and_update_PI_kernel(
-    i,
+    idx,
     T_A,
     T_B,
     m,
@@ -47,8 +48,8 @@ def _compute_and_update_PI_kernel(
 
     Parameters
     ----------
-    i : int
-        sliding window `i`
+    idx : int
+        The index for sliding window `j` (in `T_B`)
 
     T_A : numpy.ndarray
         The time series or sequence for which to compute the dot product
@@ -61,7 +62,9 @@ def _compute_and_update_PI_kernel(
         Window size
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     p_norm_even : numpy.ndarray
         The input p-norm array to use when `i` is even
@@ -146,50 +149,53 @@ def _compute_and_update_PI_kernel(
     start = cuda.grid(1)
     stride = cuda.gridsize(1)
 
-    if i % 2 == 0:
+    j = idx
+    # The name `i` is reserved to be used as an index for `T_A`
+
+    if j % 2 == 0:
         p_norm_out = p_norm_even
         p_norm_in = p_norm_odd
     else:
         p_norm_out = p_norm_odd
         p_norm_in = p_norm_even
 
-    for j in range(start, p_norm_out.shape[0], stride):
-        zone_start = max(0, j - excl_zone)
-        zone_stop = min(w, j + excl_zone)
+    for i in range(start, p_norm_out.shape[0], stride):
+        zone_start = max(0, i - excl_zone)
+        zone_stop = min(w, i + excl_zone)
 
         if compute_p_norm:
-            p_norm_out[j] = (
-                p_norm_in[j - 1]
-                - abs(T_B[i - 1] - T_A[j - 1]) ** p
-                + abs(T_B[i + m - 1] - T_A[j + m - 1]) ** p
+            p_norm_out[i] = (
+                p_norm_in[i - 1]
+                - abs(T_A[i - 1] - T_B[j - 1]) ** p
+                + abs(T_A[i + m - 1] - T_B[j + m - 1]) ** p
             )
-            p_norm_out[0] = p_norm_first[i]
-        if not T_B_subseq_isfinite[i] or not T_A_subseq_isfinite[j]:
+            p_norm_out[0] = p_norm_first[j]
+        if not T_B_subseq_isfinite[j] or not T_A_subseq_isfinite[i]:
             p_norm = np.inf
         else:
-            p_norm = p_norm_out[j]
+            p_norm = p_norm_out[i]
 
         if p_norm < config.STUMPY_P_NORM_THRESHOLD:
             p_norm = 0
 
         if ignore_trivial:
-            if i <= zone_stop and i >= zone_start:
+            if j <= zone_stop and j >= zone_start:
                 p_norm = np.inf
-            if p_norm < profile_L[j] and i < j:
-                profile_L[j] = p_norm
-                indices_L[j] = i
-            if p_norm < profile_R[j] and i > j:
-                profile_R[j] = p_norm
-                indices_R[j] = i
+            if p_norm < profile_L[i] and j < i:
+                profile_L[i] = p_norm
+                indices_L[i] = j
+            if p_norm < profile_R[i] and j > i:
+                profile_R[i] = p_norm
+                indices_R[i] = j
 
-        if p_norm < profile[j, -1]:
-            idx = core._gpu_searchsorted_right(profile[j], p_norm, bfs, nlevel)
+        if p_norm < profile[i, -1]:
+            idx = core._gpu_searchsorted_right(profile[i], p_norm, bfs, nlevel)
             for g in range(k - 1, idx, -1):
-                profile[j, g] = profile[j, g - 1]
-                indices[j, g] = indices[j, g - 1]
+                profile[i, g] = profile[i, g - 1]
+                indices[i, g] = indices[i, g - 1]
 
-            profile[j, idx] = p_norm
-            indices[j, idx] = i
+            profile[i, idx] = p_norm
+            indices[i, idx] = j
 
 
 def _gpu_aamp(
@@ -245,7 +251,9 @@ def _gpu_aamp(
         `T_B` contains a `np.nan`/`np.inf` value (False)
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     p_norm_fname : str
         The file name for the p-norm between some query sequence,`Q`,
@@ -433,8 +441,6 @@ def _gpu_aamp(
 
 
 def gpu_aamp(T_A, m, T_B=None, ignore_trivial=True, device_id=0, p=2.0, k=1):
-    # function needs to be revised to return (top-k) matrix profile and
-    # matrix profile indices
     """
     Compute the non-normalized (i.e., without z-normalization) matrix profile with
     one or more GPU devices
@@ -468,7 +474,9 @@ def gpu_aamp(T_A, m, T_B=None, ignore_trivial=True, device_id=0, p=2.0, k=1):
         executing `[device.id for device in numba.cuda.list_devices()]`.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     k : int, default 1
         The number of top `k` smallest distances used to construct the matrix profile.
@@ -489,6 +497,12 @@ def gpu_aamp(T_A, m, T_B=None, ignore_trivial=True, device_id=0, p=2.0, k=1):
         equivalently, out[:, -2] and out[:, -1]) correspond to the top-1 left
         matrix profile indices and the top-1 right matrix profile indices, respectively.
 
+        For convenience, the matrix profile (distances) and matrix profile indices can
+        also be accessed via their corresponding named array attributes, `.P_` and
+        `.I_`,respectively. Similarly, the corresponding left matrix profile indices
+        and right matrix profile indices may also be accessed via the `.left_I_` and
+        `.right_I_` array attributes.
+
     Notes
     -----
     `arXiv:1901.05708 \
@@ -505,6 +519,7 @@ def gpu_aamp(T_A, m, T_B=None, ignore_trivial=True, device_id=0, p=2.0, k=1):
     """
     if T_B is None:  # Self join!
         T_B = T_A
+        core.check_self_join(ignore_trivial)
         ignore_trivial = True
 
     T_A, T_A_subseq_isfinite = core.preprocess_non_normalized(T_A, m)
@@ -522,8 +537,13 @@ def gpu_aamp(T_A, m, T_B=None, ignore_trivial=True, device_id=0, p=2.0, k=1):
             "For multidimensional STUMP use `stumpy.mstump` or `stumpy.mstumped`"
         )
 
-    core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
     ignore_trivial = core.check_ignore_trivial(T_A, T_B, ignore_trivial)
+    if ignore_trivial:  # self-join
+        core.check_window_size(
+            m, max_size=min(T_A.shape[0], T_B.shape[0]), n=T_A.shape[0]
+        )
+    else:  # AB-join
+        core.check_window_size(m, max_size=min(T_A.shape[0], T_B.shape[0]))
 
     n = T_B.shape[0]
     w = T_A.shape[0] - m + 1
@@ -699,4 +719,4 @@ def gpu_aamp(T_A, m, T_B=None, ignore_trivial=True, device_id=0, p=2.0, k=1):
 
     core._check_P(out[:, 0])
 
-    return out
+    return mparray(out, m, k, config.STUMPY_EXCL_ZONE_DENOM)

@@ -3,8 +3,11 @@
 # STUMPY is a trademark of TD Ameritrade IP Company, Inc. All rights reserved.
 
 import numpy as np
-from . import core, stump, scrump, stumped
+
+from . import core, scrump
 from .aamp_stimp import aamp_stimp, aamp_stimped
+from .stump import stump
+from .stumped import stumped
 
 
 def _normalize_pan(pan, ms, bfs_indices, n_processed):
@@ -33,7 +36,7 @@ def _normalize_pan(pan, ms, bfs_indices, n_processed):
     """
     idx = bfs_indices[:n_processed]
     norm = 1.0 / (2.0 * np.sqrt(ms[:n_processed]))
-    pan[idx] = np.minimum(1.0, pan[idx] * norm[:, np.newaxis])
+    pan[idx] = np.minimum(1.0, pan[idx] * np.expand_dims(norm, 1))
 
 
 class _stimp:
@@ -47,16 +50,16 @@ class _stimp:
     T : numpy.ndarray
         The time series or sequence for which to compute the pan matrix profile
 
-    m_start : int, default 3
+    min_m : int, default 3
         The starting (or minimum) subsequence window size for which a matrix profile
         may be computed
 
-    m_stop : int, default None
+    max_m : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
+        may be computed. When `max_m = None`, this is set to the maximum allowable
         subsequence window size
 
-    m_step : int, default 1
+    step : int, default 1
         The step between subsequence window sizes
 
     percentage : float, default 0.01
@@ -77,12 +80,20 @@ class _stimp:
 
     device_id : int or list, default None
         The (GPU) device number to use. The default value is `0`. A list of
-        valid device ids (int) may also be provided for parallel GPU-STUMP
+        valid device ids (``int``) may also be provided for parallel GPU-STUMP
         computation. A list of all valid device ids can be obtained by
         executing `[device.id for device in numba.cuda.list_devices()]`.
 
-    mp_func : object, default stump
+    mp_func : function, default stump
         The matrix profile function to use when `percentage = 1.0`
+
+    T_subseq_isconstant_func : function, default None
+        A custom, user-defined function that returns a boolean array that indicates
+        whether a subsequence in `T` is constant (True). The function must only take
+        two arguments, `a`, a 1-D array, and `w`, the window size, while additional
+        arguments may be specified by currying the user-defined function using
+        `functools.partial`. Any subsequence with at least one np.nan/np.inf will
+        automatically have its corresponding value set to False in this boolean array.
 
     Attributes
     ----------
@@ -119,6 +130,7 @@ class _stimp:
         client=None,
         device_id=None,
         mp_func=stump,
+        T_subseq_isconstant_func=None,
     ):
         """
         Initialize the `stimp` object and compute the Pan Matrix Profile
@@ -158,12 +170,21 @@ class _stimp:
 
         device_id : int or list, default None
             The (GPU) device number to use. The default value is `0`. A list of
-            valid device ids (int) may also be provided for parallel GPU-STUMP
+            valid device ids (``int``) may also be provided for parallel GPU-STUMP
             computation. A list of all valid device ids can be obtained by
             executing `[device.id for device in numba.cuda.list_devices()]`.
 
-        mp_func : object, default stump
+        mp_func : function, default stump
             The matrix profile function to use when `percentage = 1.0`
+
+        T_subseq_isconstant_func : function, default None
+            A custom, user-defined function that returns a boolean array that indicates
+            whether a subsequence in `T` is constant (True). The function must only take
+            two arguments, `a`, a 1-D array, and `w`, the window size, while additional
+            arguments may be specified by currying the user-defined function using
+            `functools.partial`. Any subsequence with at least one np.nan/np.inf will
+            automatically have its corresponding value set to False in this boolean
+            array.
         """
         self._T = T.copy()
         if max_m is None:
@@ -182,10 +203,19 @@ class _stimp:
         percentage = np.clip(percentage, 0.0, 1.0)
         self._percentage = percentage
         self._pre_scrump = pre_scrump
-        partial_mp_func = core._get_partial_mp_func(
+        self._partial_mp_func = core._get_partial_mp_func(
             mp_func, client=client, device_id=device_id
         )
-        self._mp_func = partial_mp_func
+
+        if T_subseq_isconstant_func is None:
+            T_subseq_isconstant_func = core._rolling_isconstant
+        if not callable(T_subseq_isconstant_func):  # pragma: no cover
+            msg = (
+                "`T_subseq_isconstant_func` was expected to be a callable function "
+                + f"but {type(T_subseq_isconstant_func)} was found."
+            )
+            raise ValueError(msg)
+        self._T_subseq_isconstant_func = T_subseq_isconstant_func
 
         self._PAN = np.full(
             (self._M.shape[0], self._T.shape[0]), fill_value=np.inf, dtype=np.float64
@@ -195,6 +225,14 @@ class _stimp:
         """
         Update the pan matrix profile by computing a single matrix profile using the
         next available subsequence window size
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
 
         Notes
         -----
@@ -213,16 +251,18 @@ class _stimp:
                     percentage=self._percentage,
                     pre_scrump=self._pre_scrump,
                     k=1,
+                    T_A_subseq_isconstant=self._T_subseq_isconstant_func,
                 )
                 approx.update()
                 self._PAN[
                     self._bfs_indices[self._n_processed], : approx.P_.shape[0]
                 ] = approx.P_
             else:
-                out = self._mp_func(
+                out = self._partial_mp_func(
                     self._T,
                     m,
                     ignore_trivial=True,
+                    T_A_subseq_isconstant=self._T_subseq_isconstant_func,
                 )
                 self._PAN[
                     self._bfs_indices[self._n_processed], : out[:, 0].shape[0]
@@ -294,6 +334,14 @@ class _stimp:
         """
         Get the transformed (i.e., normalized, contrasted, binarized, and repeated) pan
         matrix profile
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         return self.pan().astype(np.float64)
 
@@ -301,8 +349,36 @@ class _stimp:
     def M_(self):
         """
         Get all of the (breadth first searched (level) ordered) subsequence window sizes
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
         return self._M.astype(np.int64)
+
+    @property
+    def P_(self):
+        """
+        Get all of the raw (i.e., non-transformed) matrix profiles matrix profile in
+        (breadth first searched (level) ordered)
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+        P = []
+        for i, idx in enumerate(self._bfs_indices):
+            P.append(self._PAN[idx][: len(self._T) - self._M[i] + 1])
+
+        return P
 
     # @property
     # def bfs_indices_(self):
@@ -321,61 +397,73 @@ class _stimp:
 
 @core.non_normalized(
     aamp_stimp,
-    exclude=["pre_scrump", "normalize", "p", "pre_scraamp"],
+    exclude=["pre_scrump", "normalize", "p", "T_subseq_isconstant_func", "pre_scraamp"],
     replace={"pre_scrump": "pre_scraamp"},
 )
 class stimp(_stimp):
     """
-    Compute the Pan Matrix Profile
+    A class to compute the Pan Matrix Profile
 
     This is based on the SKIMP algorithm.
 
     Parameters
     ----------
     T : numpy.ndarray
-        The time series or sequence for which to compute the pan matrix profile
+        The time series or sequence for which to compute the pan matrix profile.
 
-    m_start : int, default 3
+    min_m : int, default 3
         The starting (or minimum) subsequence window size for which a matrix profile
-        may be computed
+        may be computed.
 
-    m_stop : int, default None
+    max_m : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
-        subsequence window size
+        may be computed. When ``max_m = None``, this is set to the maximum allowable
+        subsequence window size.
 
-    m_step : int, default 1
-        The step between subsequence window sizes
+    step : int, default 1
+        The step between subsequence window sizes.
 
     percentage : float, default 0.01
         The percentage of the full matrix profile to compute for each subsequence
-        window size. When `percentage < 1.0`, then the `scrump` algorithm is used.
-        Otherwise, the `stump` algorithm is used when the exact matrix profile is
+        window size. When ``percentage < 1.0``, then the ``scrump`` algorithm is used.
+        Otherwise, the ``stump`` algorithm is used when the exact matrix profile is
         requested.
 
     pre_scrump : bool, default True
         A flag for whether or not to perform the PreSCRIMP calculation prior to
-        computing SCRIMP. If set to `True`, this is equivalent to computing
-        SCRIMP++. This parameter is ignored when `percentage = 1.0`.
+        computing SCRIMP. If set to ``True``, this is equivalent to computing
+        SCRIMP++. This parameter is ignored when ``percentage = 1.0``.
 
     normalize : bool, default True
-        When set to `True`, this z-normalizes subsequences prior to computing distances.
-        Otherwise, this function gets re-routed to its complementary non-normalized
-        equivalent set in the `@core.non_normalized` function decorator.
+        When set to ``True``, this z-normalizes subsequences prior to computing
+        distances. Otherwise, this function gets re-routed to its complementary
+        non-normalized equivalent set in the ``@core.non_normalized`` function
+        decorator.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance. This parameter is
-        ignored when `normalize == True`.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with ``p`` being ``1`` or ``2``, which correspond to the
+        Manhattan distance and the Euclidean distance, respectively. This parameter is
+        ignored when ``normalize == True``.
+
+    T_subseq_isconstant_func : function, default None
+        A custom, user-defined function that returns a boolean array that indicates
+        whether a subsequence in ``T`` is constant (``True``). The function must only
+        take two arguments, ``a``, a 1-D array, and ``w``, the window size, while
+        additional arguments may be specified by currying the user-defined function
+        using ``functools.partial``. Any subsequence with at least one
+        ``np.nan``/``np.inf`` will automatically have its corresponding value set to
+        ``False`` in this boolean array.
 
     Attributes
     ----------
     PAN_ : numpy.ndarray
         The transformed (i.e., normalized, contrasted, binarized, and repeated)
-        pan matrix profile
+        pan matrix profile.
 
     M_ : numpy.ndarray
         The full list of (breadth first search (level) ordered) subsequence window
-        sizes
+        sizes.
 
     Methods
     -------
@@ -385,7 +473,7 @@ class stimp(_stimp):
 
     See Also
     --------
-    stumpy.stimped : Compute the Pan Matrix Profile with a distributed dask cluster
+    stumpy.stimped : Compute the Pan Matrix Profile with a ``dask``/``ray`` cluster
     stumpy.gpu_stimp : Compute the Pan Matrix Profile with with one or more GPU devices
 
     Notes
@@ -397,6 +485,8 @@ class stimp(_stimp):
 
     Examples
     --------
+    >>> import stumpy
+    >>> import numpy as np
     >>> pmp = stumpy.stimp(np.array([584., -11., 23., 79., 1001., 0., -19.]))
     >>> pmp.update()
     >>> pmp.PAN_
@@ -414,47 +504,57 @@ class stimp(_stimp):
         pre_scrump=True,
         normalize=True,
         p=2.0,
+        T_subseq_isconstant_func=None,
     ):
         """
-        Initialize the `stimp` object and compute the Pan Matrix Profile
+        Initialize the ``stimp`` object and compute the Pan Matrix Profile
 
         Parameters
         ----------
         T : numpy.ndarray
-            The time series or sequence for which to compute the pan matrix profile
+            The time series or sequence for which to compute the pan matrix profile.
 
         min_m : int, default 3
             The minimum subsequence window size to consider computing a matrix profile
-            for
+            for.
 
         max_m : int, default None
             The maximum subsequence window size to consider computing a matrix profile
-            for. When `max_m = None`, this is set to the maximum allowable subsequence
-            window size
+            for. When ``max_m = None``, this is set to the maximum allowable
+            subsequence window size.
 
         step : int, default 1
-            The step between subsequence window sizes
+            The step between subsequence window sizes.
 
         percentage : float, default 0.01
             The percentage of the full matrix profile to compute for each subsequence
-            window size. When `percentage < 1.0`, then the `scrump` algorithm is used.
-            Otherwise, the `stump` algorithm is used when the exact matrix profile is
-            requested.
+            window size. When ``percentage < 1.0``, then the ``scrump`` algorithm is
+            used. Otherwise, the ``stump`` algorithm is used when the exact matrix
+            profile is requested.
 
         pre_scrump : bool, default True
             A flag for whether or not to perform the PreSCRIMP calculation prior to
-            computing SCRIMP. If set to `True`, this is equivalent to computing
-            SCRIMP++. This parameter is ignored when `percentage = 1.0`.
+            computing SCRIMP. If set to ``True``, this is equivalent to computing
+            SCRIMP++. This parameter is ignored when    `percentage = 1.0``.
 
         normalize : bool, default True
-            When set to `True`, this z-normalizes subsequences prior to computing
+            When set to ``True``, this z-normalizes subsequences prior to computing
             distances. Otherwise, this function gets re-routed to its complementary
-            non-normalized equivalent set in the `@core.non_normalized` function
+            non-normalized equivalent set in the ``@core.non_normalized`` function
             decorator.
 
         p : float, default 2.0
             The p-norm to apply for computing the Minkowski distance. This parameter is
-            ignored when `normalize == True`.
+            ignored when ``normalize == True``.
+
+        T_subseq_isconstant_func : function, default None
+            A custom, user-defined function that returns a boolean array that indicates
+            whether a subsequence in ``T`` is constant (``True``). The function must
+            only take two arguments, ``a``, a 1-D array, and ``w``, the window size,
+            while additional arguments may be specified by currying the user-defined
+            function using ``functools.partial``. Any subsequence with at least one
+            ``np.nan``/``np.inf`` will automatically have its corresponding value set
+            to ``False`` in this boolean array.
         """
         super().__init__(
             T,
@@ -464,66 +564,79 @@ class stimp(_stimp):
             percentage=percentage,
             pre_scrump=pre_scrump,
             mp_func=stump,
+            T_subseq_isconstant_func=T_subseq_isconstant_func,
         )
 
 
 @core.non_normalized(
     aamp_stimped,
-    exclude=["pre_scrump", "normalize", "p", "pre_scraamp"],
+    exclude=["pre_scrump", "normalize", "p", "T_subseq_isconstant_func", "pre_scraamp"],
     replace={"pre_scrump": "pre_scraamp"},
 )
 class stimped(_stimp):
     """
-    Compute the Pan Matrix Profile with a distributed dask/ray cluster
+    A class to compute the Pan Matrix Profile with a ``dask``/``ray`` cluster
 
     This is based on the SKIMP algorithm.
 
     Parameters
     ----------
     client : client
-        A Dask or Ray Distributed client. Setting up a distributed cluster is beyond
-        the scope of this library. Please refer to the Dask or Ray Distributed
+        A ``dask``/``ray`` client. Setting up a ``dask``/``ray`` cluster is beyond
+        the scope of this library. Please refer to the ``dask``/``ray``
         documentation.
 
     T : numpy.ndarray
-        The time series or sequence for which to compute the pan matrix profile
+        The time series or sequence for which to compute the pan matrix profile.
 
-    m_start : int, default 3
+    min_m : int, default 3
         The starting (or minimum) subsequence window size for which a matrix profile
-        may be computed
+        may be computed.
 
-    m_stop : int, default None
+    max_m : int, default None
         The stopping (or maximum) subsequence window size for which a matrix profile
-        may be computed. When `m_stop = Non`, this is set to the maximum allowable
+        may be computed. When ``max_m = None``, this is set to the maximum allowable
         subsequence window size
 
-    m_step : int, default 1
-        The step between subsequence window sizes
+    step : int, default 1
+        The step between subsequence window sizes.
 
     normalize : bool, default True
-        When set to `True`, this z-normalizes subsequences prior to computing distances.
-        Otherwise, this function gets re-routed to its complementary non-normalized
-        equivalent set in the `@core.non_normalized` function decorator.
+        When set to ``True``, this z-normalizes subsequences prior to computing
+        distances. Otherwise, this function gets re-routed to its complementary
+        non-normalized equivalent set in the ``@core.non_normalized`` function
+        decorator.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance. This parameter is
-        ignored when `normalize == True`.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with ``p`` being ``1`` or ``2``, which correspond to the
+        Manhattan distance and the Euclidean distance, respectively. This parameter is
+        ignored when ``normalize == True``.
+
+    T_subseq_isconstant_func : function, default None
+            A custom, user-defined function that returns a boolean array that indicates
+            whether a subsequence in ``T`` is constant (``True``). The function must
+            only take two arguments, ``a``, a 1-D array, and ``w``, the window size,
+            while additional arguments may be specified by currying the user-defined
+            function using ``functools.partial``. Any subsequence with at least one
+            ``np.nan``/``np.inf`` will automatically have its corresponding value set
+            to ``False`` in this boolean array.
 
     Attributes
     ----------
     PAN_ : numpy.ndarray
         The transformed (i.e., normalized, contrasted, binarized, and repeated)
-        pan matrix profile
+        pan matrix profile.
 
     M_ : numpy.ndarray
         The full list of (breadth first search (level) ordered) subsequence window
-        sizes
+        sizes.
 
     Methods
     -------
     update():
         Compute the next matrix profile using the next available (breadth-first-search
-        (level) ordered) subsequence window size and update the pan matrix profile
+        (level) ordered) subsequence window size and update the pan matrix profile.
 
     See Also
     --------
@@ -539,6 +652,8 @@ class stimped(_stimp):
 
     Examples
     --------
+    >>> import stumpy
+    >>> import numpy as np
     >>> from dask.distributed import Client
     >>> if __name__ == "__main__":
     ...     with Client() as dask_client:
@@ -549,6 +664,16 @@ class stimped(_stimp):
     ...         pmp.PAN_
     array([[0., 1., 1., 1., 1., 1., 1.],
            [0., 1., 1., 1., 1., 1., 1.]])
+
+    Alternatively, you can also use `ray`
+
+    >>> import ray
+    >>> if __name__ == "__main__":
+    >>>     ray.init()
+    >>>     pmp = stumpy.stimped(
+    ...         ray,
+    ...         np.array([584., -11., 23., 79., 1001., 0., -19.]))
+    >>>     ray.shutdown()
     """
 
     def __init__(
@@ -560,41 +685,53 @@ class stimped(_stimp):
         step=1,
         normalize=True,
         p=2.0,
+        T_subseq_isconstant_func=None,
     ):
         """
-        Initialize the `stimp` object and compute the Pan Matrix Profile
+        Initialize the ``stimp`` object and compute the Pan Matrix Profile
 
         Parameters
         ----------
         client : client
-            A Dask or Ray Distributed client. Setting up a distributed cluster is beyond
-            the scope of this library. Please refer to the Dask or Ray Distributed
+            A ``dask``/``ray`` client. Setting up a ``dask``/``ray`` cluster is beyond
+            the scope of this library. Please refer to the ``dask``/``ray``
             documentation.
 
         T : numpy.ndarray
-            The time series or sequence for which to compute the pan matrix profile
+            The time series or sequence for which to compute the pan matrix profile.
 
         min_m : int, default 3
             The minimum subsequence window size to consider computing a matrix profile
-            for
+            for.
 
         max_m : int, default None
             The maximum subsequence window size to consider computing a matrix profile
-            for. When `max_m = None`, this is set to the maximum allowable subsequence
-            window size
+            for. When ``max_m = None``, this is set to the maximum allowable
+            subsequence window size.
 
         step : int, default 1
-            The step between subsequence window sizes
+            The step between subsequence window sizes.
 
         normalize : bool, default True
-            When set to `True`, this z-normalizes subsequences prior to computing
+            When set to ``True``, this z-normalizes subsequences prior to computing
             distances. Otherwise, this function gets re-routed to its complementary
-            non-normalized equivalent set in the `@core.non_normalized` function
+            non-normalized equivalent set in the ``@core.non_normalized`` function
             decorator.
 
         p : float, default 2.0
-            The p-norm to apply for computing the Minkowski distance. This parameter is
-            ignored when `normalize == True`.
+            The p-norm to apply for computing the Minkowski distance. Minkowski
+            distance is typically used with ``p`` being ``1`` or ``2``, which
+            correspond to the Manhattan distance and the Euclidean distance,
+            respectively. This parameter is ignored when ``normalize == True``.
+
+        T_subseq_isconstant_func : function, default None
+            A custom, user-defined function that returns a boolean array that indicates
+            whether a subsequence in ``T`` is constant (``True``). The function must
+            only take two arguments, ``a``, a 1-D array, and ``w``, the window size,
+            while additional arguments may be specified by currying the user-defined
+            function using  `functools.partial  `. Any subsequence with at least one
+            ``np.nan``/``np.inf`` will automatically have its corresponding value set
+            to ``False`` in this boolean array.
         """
         super().__init__(
             T,
@@ -605,4 +742,5 @@ class stimped(_stimp):
             pre_scrump=False,
             client=client,
             mp_func=stumped,
+            T_subseq_isconstant_func=T_subseq_isconstant_func,
         )

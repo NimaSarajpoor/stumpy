@@ -3,7 +3,8 @@
 # STUMPY is a trademark of TD Ameritrade IP Company, Inc. All rights reserved.
 
 import numpy as np
-from . import core, config
+
+from . import config, core
 from .aamp import aamp
 
 
@@ -33,6 +34,14 @@ class aampi:
         The number of top `k` smallest distances used to construct the matrix profile.
         Note that this will increase the total computational time and memory usage
         when k > 1.
+
+    mp : numpy.ndarray, default None
+        A pre-computed matrix profile (and corresponding matrix profile indices).
+        This is a 2D array of shape `(len(T) - m + 1, 2 * k + 2)`, where the first `k`
+        columns are top-k matrix profile, and the next `k` columns are their
+        corresponding indices. The last two columns correspond to the top-1 left and
+        top-1 right matrix profile indices. When None (default), this array is computed
+        internally using `stumpy.aamp`.
 
     Attributes
     ----------
@@ -68,9 +77,9 @@ class aampi:
     Note that we have extended this algorithm for AB-joins as well.
     """
 
-    def __init__(self, T, m, egress=True, p=2.0, k=1):
+    def __init__(self, T, m, egress=True, p=2.0, k=1, mp=None):
         """
-        Initialize the `stumpi` object
+        Initialize the `aampi` object
 
         Parameters
         ----------
@@ -88,14 +97,21 @@ class aampi:
         p : float, default 2.0
             The p-norm to apply for computing the Minkowski distance.
 
-
         k : int, default 1
             The number of top `k` smallest distances used to construct the matrix
             profile. Note that this will increase the total computational time and
             memory usage when k > 1.
+
+        mp : numpy.ndarray, default None
+            A pre-computed matrix profile (and corresponding matrix profile indices).
+            This is a 2D array of shape `(len(T) - m + 1, 2 * k + 2)`, where the first
+            `k` columns are top-k matrix profile, and the next `k` columns are their
+            corresponding indices. The last two columns correspond to the top-1 left
+            and top-1 right matrix profile indices. When None (default), this array is
+            computed internally using `stumpy.aamp`.
         """
         self._T = core._preprocess(T)
-        core.check_window_size(m, max_size=self._T.shape[-1])
+        core.check_window_size(m, max_size=self._T.shape[0])
         self._m = m
         self._n = self._T.shape[0]
         self._excl_zone = int(np.ceil(self._m / config.STUMPY_EXCL_ZONE_DENOM))
@@ -103,7 +119,21 @@ class aampi:
         self._p = p
         self._k = k
 
-        mp = aamp(self._T, self._m, p=self._p, k=self._k)
+        if mp is None:
+            mp = aamp(self._T, self._m, p=self._p, k=self._k)
+        else:
+            mp = mp.copy()
+
+        if mp.shape != (
+            len(self._T) - self._m + 1,
+            2 * self._k + 2,
+        ):  # pragma: no cover
+            msg = (
+                f"The shape of `mp` must match ({len(T) - m + 1}, {2 * k + 2}) but "
+                + f"found {mp.shape} instead."
+            )
+            raise ValueError(msg)
+
         self._P = mp[:, : self._k].astype(np.float64)
         self._I = mp[:, self._k : 2 * self._k].astype(np.int64)
         self._left_I = mp[:, 2 * self._k].astype(np.int64)
@@ -217,26 +247,9 @@ class aampi:
         if np.any(~self._T_isfinite[-self._m :]):
             D[:] = np.inf
 
-        core.apply_exclusion_zone(D, D.shape[0] - 1, self._excl_zone, np.inf)
-
-        update_idx = np.argwhere(D < self._P[:, -1]).flatten()
-        for i in update_idx:
-            idx = np.searchsorted(self._P[i], D[i], side="right")
-            core._shift_insert_at_index(self._P[i], idx, D[i])
-            core._shift_insert_at_index(
-                self._I[i], idx, D.shape[0] + self._n_appended - 1
-            )
-            # D.shape[0] is base-1
-
-        # Calculate the (top-k) matrix profile values/indices for the last subsequence
-        # by using its corresponding distance profile `D`
-        self._P[-1] = np.inf
-        self._I[-1] = -1
-        for i, d in enumerate(D):
-            if d < self._P[-1, -1]:
-                idx = np.searchsorted(self._P[-1], d, side="right")
-                core._shift_insert_at_index(self._P[-1], idx, d)
-                core._shift_insert_at_index(self._I[-1], idx, i + self._n_appended)
+        core._update_incremental_PI(
+            D, self._P, self._I, self._excl_zone, n_appended=self._n_appended
+        )
 
         # All neighbors of the last subsequence are on its left. So, its (top-1)
         # matrix profile value/index and its left matrix profile value/index must
@@ -292,30 +305,17 @@ class aampi:
         if np.any(~self._T_isfinite[-self._m :]):
             D[:] = np.inf
 
-        core.apply_exclusion_zone(D, D.shape[0] - 1, self._excl_zone, np.inf)
-
-        update_idx = np.argwhere(D[:l] < self._P[:l, -1]).flatten()
-        for i in update_idx:
-            idx = np.searchsorted(self._P[i], D[i], side="right")
-            core._shift_insert_at_index(self._P[i], idx, D[i])
-            core._shift_insert_at_index(self._I[i], idx, l)
-
-        # Calculating top-k matrix profile and (top-1) left matrix profile (and their
-        # corresponding indices) for new subsequence whose distance profile is `D`
         P_new = np.full(self._k, np.inf, dtype=np.float64)
         I_new = np.full(self._k, -1, dtype=np.int64)
-        for i, d in enumerate(D):
-            if d < P_new[-1]:  # maximum value in sorted array P_new
-                idx = np.searchsorted(P_new, d, side="right")
-                core._shift_insert_at_index(P_new, idx, d)
-                core._shift_insert_at_index(I_new, idx, i)
-
-        left_I_new = I_new[0]
-        left_P_new = P_new[0]
-
-        self._T = T_new
         self._P = np.append(self._P, P_new.reshape(1, -1), axis=0)
         self._I = np.append(self._I, I_new.reshape(1, -1), axis=0)
+
+        core._update_incremental_PI(D, self._P, self._I, self._excl_zone, n_appended=0)
+
+        left_I_new = self._I[-1, 0]
+        left_P_new = self._P[-1, 0]
+
+        self._T = T_new
         self._left_P = np.append(self._left_P, left_P_new)
         self._left_I = np.append(self._left_I, left_I_new)
         self._p_norm = p_norm_new
@@ -327,6 +327,10 @@ class aampi:
         a 1D array consisting of the matrix profile. When `k > 1`, the
         output is a 2D array that has exactly `k` columns and it consists of the
         top-k matrix profile.
+
+        Parameters
+        ----------
+        None
         """
         if self._k == 1:
             return self._P.flatten().astype(np.float64)
@@ -340,6 +344,10 @@ class aampi:
         a 1D array consisting of the matrix profile indices. When `k > 1`, the
         output is a 2D array that has exactly `k` columns and it consists of the
         top-k matrix profile indices.
+
+        Parameters
+        ----------
+        None
         """
         if self._k == 1:
             return self._I.flatten().astype(np.int64)
@@ -350,6 +358,10 @@ class aampi:
     def left_P_(self):
         """
         Get the (top-1) left matrix profile
+
+        Parameters
+        ----------
+        None
         """
         return self._left_P.astype(np.float64)
 
@@ -357,6 +369,10 @@ class aampi:
     def left_I_(self):
         """
         Get the (top-1) left matrix profile indices
+
+        Parameters
+        ----------
+        None
         """
         return self._left_I.astype(np.int64)
 
@@ -364,5 +380,9 @@ class aampi:
     def T_(self):
         """
         Get the time series
+
+        Parameters
+        ----------
+        None
         """
         return self._T

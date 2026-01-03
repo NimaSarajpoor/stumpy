@@ -2,11 +2,13 @@
 # Copyright 2019 TD Ameritrade. Released under the terms of the 3-Clause BSD license.
 # STUMPY is a trademark of TD Ameritrade IP Company, Inc. All rights reserved.
 
-import numpy as np
-from numba import njit, prange
 from functools import partial
 
-from . import core, config, mstump
+import numpy as np
+from numba import njit, prange
+
+from . import config, core
+from .mmparray import mparray
 
 
 def _multi_mass_absolute(Q, T, m, Q_subseq_isfinite, T_subseq_isfinite, p=2.0):
@@ -27,7 +29,7 @@ def _multi_mass_absolute(Q, T, m, Q_subseq_isfinite, T_subseq_isfinite, p=2.0):
         Window size
 
     Q_subseq_isfinite : numpy.ndarray
-        A boolean array that indicates whether a subsequence in `Q` contains a
+        A boolean array that indicates whether the subsequence in `Q` contains a
         `np.nan`/`np.inf` value (False)
 
     T_subseq_isfinite : numpy.ndarray
@@ -35,7 +37,9 @@ def _multi_mass_absolute(Q, T, m, Q_subseq_isfinite, T_subseq_isfinite, p=2.0):
         `np.nan`/`np.inf` value (False)
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -44,9 +48,9 @@ def _multi_mass_absolute(Q, T, m, Q_subseq_isfinite, T_subseq_isfinite, p=2.0):
         profile
     """
     d, n = T.shape
-    k = n - m + 1
+    l = n - m + 1
 
-    D = np.empty((d, k), dtype=np.float64)
+    D = np.empty((d, l), dtype=np.float64)
 
     for i in range(d):
         if np.any(~Q_subseq_isfinite[i]):
@@ -124,7 +128,9 @@ def maamp_subspace(
         <https://www.cs.ucr.edu/~eamonn/ICDM_mdl.pdf>`__
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -134,7 +140,7 @@ def maamp_subspace(
         returned.
     """
     T = core._preprocess(T)
-    core.check_window_size(m, max_size=T.shape[-1])
+    core.check_window_size(m, max_size=T.shape[1], n=T.shape[1])
 
     subseqs, _ = core.preprocess_non_normalized(T[:, subseq_idx : subseq_idx + m], m)
     neighbors, _ = core.preprocess_non_normalized(T[:, nn_idx : nn_idx + m], m)
@@ -152,7 +158,7 @@ def maamp_subspace(
 
     D = np.linalg.norm(disc_subseqs - disc_neighbors, axis=1, ord=p)
 
-    S = mstump._subspace(D, k, include=include, discords=discords)
+    S = core._subspace(D, k, include=include, discords=discords)
 
     return S
 
@@ -161,7 +167,7 @@ def _maamp_discretize(a, a_min, a_max, n_bit=8):  # pragma: no cover
     """
     Discretize each row of the input array
 
-    This distribution is best suited for non-normalized time seris data
+    This distribution is best suited for non-normalized time series data
 
     Parameters
     ----------
@@ -183,9 +189,7 @@ def _maamp_discretize(a, a_min, a_max, n_bit=8):  # pragma: no cover
         Discretized array
     """
     return (
-        np.round(((a - a_min) / (a_max - a_min)) * ((2**n_bit) - 1.0)).astype(
-            np.int64
-        )
+        np.round(((a - a_min) / (a_max - a_min)) * ((2**n_bit) - 1.0)).astype(np.int64)
         + 1
     )
 
@@ -251,7 +255,9 @@ def maamp_mdl(
         <https://www.cs.ucr.edu/~eamonn/ICDM_mdl.pdf>`__
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -263,7 +269,7 @@ def maamp_mdl(
         A list of numpy.ndarrays that contains the `k`th-dimensional subspaces
     """
     T = core._preprocess(T)
-    core.check_window_size(m, max_size=T.shape[-1])
+    core.check_window_size(m, max_size=T.shape[1], n=T.shape[1])
 
     if discretize_func is None:
         T_isfinite = np.isfinite(T)
@@ -288,8 +294,8 @@ def maamp_mdl(
 
         D = np.linalg.norm(disc_subseqs - disc_neighbors, axis=1, ord=p)
 
-        S[k] = mstump._subspace(D, k, include=include, discords=discords)
-        bit_sizes[k] = mstump._mdl(disc_subseqs, disc_neighbors, S[k], n_bit=n_bit)
+        S[k] = core._subspace(D, k, include=include, discords=discords)
+        bit_sizes[k] = core._mdl(disc_subseqs, disc_neighbors, S[k], n_bit=n_bit)
 
     return bit_sizes, S
 
@@ -331,7 +337,9 @@ def _maamp_multi_distance_profile(
         `np.nan`/`np.inf` value (False)
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     include : numpy.ndarray, default None
         A list of (zero-based) indices corresponding to the dimensions in `T` that
@@ -355,7 +363,7 @@ def _maamp_multi_distance_profile(
         `query_idx`
     """
     d, n = T_A.shape
-    k = n - m + 1
+    l = n - m + 1
     start_row_idx = 0
     D = _multi_mass_absolute(
         T_B[:, query_idx : query_idx + m],
@@ -367,7 +375,7 @@ def _maamp_multi_distance_profile(
     )
 
     if include is not None:
-        mstump._apply_include(D, include)
+        core._apply_include(D, include)
         start_row_idx = include.shape[0]
 
     if discords:
@@ -375,7 +383,7 @@ def _maamp_multi_distance_profile(
     else:
         D[start_row_idx:].sort(axis=0, kind="mergesort")
 
-    D_prime = np.zeros(k, dtype=np.float64)
+    D_prime = np.zeros(l, dtype=np.float64)
     for i in range(d):
         D_prime[:] = D_prime + D[i]
         D[i, :] = D_prime / (i + 1)
@@ -417,7 +425,9 @@ def maamp_multi_distance_profile(query_idx, T, m, include=None, discords=False, 
         than motifs. Note that indices in `include` are still maintained and respected.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -428,13 +438,13 @@ def maamp_multi_distance_profile(query_idx, T, m, include=None, discords=False, 
     T, T_subseq_isfinite = core.preprocess_non_normalized(T, m)
 
     if T.ndim <= 1:  # pragma: no cover
-        err = f"T is {T.ndim}-dimensional and must be at least 1-dimensional"
+        err = f"T is {T.ndim}-dimensional and must be at least 2-dimensional"
         raise ValueError(f"{err}")
 
-    core.check_window_size(m, max_size=T.shape[1])
+    core.check_window_size(m, max_size=T.shape[1], n=T.shape[1])
 
     if include is not None:  # pragma: no cover
-        include = mstump._preprocess_include(include)
+        include = core._preprocess_include(include)
 
     excl_zone = int(
         np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM)
@@ -488,11 +498,13 @@ def _get_first_maamp_profile(
         The half width for the exclusion zone relative to the `start`.
 
     T_B_subseq_isfinite : numpy.ndarray
-        A boolean array that indicates whether a subsequence in `Q` contains a
+        A boolean array that indicates whether a subsequence in `T_B` contains a
         `np.nan`/`np.inf` value (False)
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     include : numpy.ndarray, default None
         A list of (zero-based) indices corresponding to the dimensions in `T` that
@@ -552,7 +564,9 @@ def _get_multi_p_norm(start, T, m, p=2.0):
         Window size
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -563,10 +577,10 @@ def _get_multi_p_norm(start, T, m, p=2.0):
         Multi-dimensional p-norm for the first window
     """
     d = T.shape[0]
-    k = T.shape[1] - m + 1
+    l = T.shape[1] - m + 1
 
-    p_norm = np.empty((d, k), dtype=np.float64)
-    p_norm_first = np.empty((d, k), dtype=np.float64)
+    p_norm = np.empty((d, l), dtype=np.float64)
+    p_norm_first = np.empty((d, l), dtype=np.float64)
     for i in range(d):
         p_norm[i] = np.power(core.mass_absolute(T[i, start : start + m], T[i], p=p), p)
         p_norm_first[i] = np.power(core.mass_absolute(T[i, :m], T[i], p=p), p)
@@ -578,7 +592,7 @@ def _get_multi_p_norm(start, T, m, p=2.0):
     # "(i8, i8, i8, f8[:, :], f8[:, :], i8, i8, b1[:, :], b1[:, :], f8,"
     # "f8[:, :], f8[:, :], f8[:, :])",
     parallel=True,
-    fastmath=True,
+    fastmath=config.STUMPY_FASTMATH_FLAGS,
 )
 def _compute_multi_p_norm(
     d,
@@ -632,7 +646,9 @@ def _compute_multi_p_norm(
         `np.nan`/`np.inf` value (False)
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     p_norm_even : numpy.ndarray
         The even input p-norm array between some query sequence,`Q`, and
@@ -644,6 +660,10 @@ def _compute_multi_p_norm(
 
     p_norm_first : numpy.ndarray
         The p-norm between the first query sequence,`Q`, and time series, `T`
+
+    Returns
+    -------
+    None
 
     Notes
     -----
@@ -742,7 +762,9 @@ def _maamp(
         `np.nan`/`np.inf` value (False)
 
     p : float
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     p_norm : numpy.ndarray
         The input p-norm array between some query sequence,`Q`, and time series, `T`
@@ -823,7 +845,7 @@ def _maamp(
 
         # `include` processing must occur here since we are dealing with distances
         if include is not None:
-            mstump._apply_include(
+            core._apply_include(
                 p_norm,
                 include,
                 restricted_indices,
@@ -838,7 +860,7 @@ def _maamp(
         else:
             p_norm[start_row_idx:].sort(axis=0)
 
-        mstump._compute_PI(d, idx, p_norm, p_norm_prime, range_start, P, I, p)
+        core._compute_multi_PI(d, idx, p_norm, p_norm_prime, range_start, P, I, p)
 
     return P, I
 
@@ -857,8 +879,8 @@ def maamp(T, m, include=None, discords=False, p=2.0):
     ----------
     T : numpy.ndarray
         The time series or sequence for which to compute the multi-dimensional
-        matrix profile. Each row in `T` represents data from a different
-        dimension while each column in `T` represents data from the same
+        matrix profile. Each row in `T` represents data from the same
+        dimension while each column in `T` represents data from a different
         dimension.
 
     m : int
@@ -879,7 +901,9 @@ def maamp(T, m, include=None, discords=False, p=2.0):
         in `include` are still maintained and respected.
 
     p : float, default 2.0
-        The p-norm to apply for computing the Minkowski distance.
+        The p-norm to apply for computing the Minkowski distance. Minkowski distance is
+        typically used with `p` being 1 or 2, which correspond to the Manhattan distance
+        and the Euclidean distance, respectively.
 
     Returns
     -------
@@ -909,22 +933,22 @@ def maamp(T, m, include=None, discords=False, p=2.0):
         err = f"T is {T_A.ndim}-dimensional and must be at least 1-dimensional"
         raise ValueError(f"{err}")
 
-    core.check_window_size(m, max_size=min(T_A.shape[1], T_B.shape[1]))
+    core.check_window_size(m, max_size=min(T_A.shape[1], T_B.shape[1]), n=T_A.shape[1])
 
     if include is not None:
-        include = mstump._preprocess_include(include)
+        include = core._preprocess_include(include)
 
     d, n = T_B.shape
-    k = n - m + 1
+    l = n - m + 1
     excl_zone = int(
         np.ceil(m / config.STUMPY_EXCL_ZONE_DENOM)
     )  # See Definition 3 and Figure 3
 
-    P = np.empty((d, k), dtype=np.float64)
-    I = np.empty((d, k), dtype=np.int64)
+    P = np.empty((d, l), dtype=np.float64)
+    I = np.empty((d, l), dtype=np.int64)
 
     start = 0
-    stop = k
+    stop = l
 
     P[:, start], I[:, start] = _get_first_maamp_profile(
         start,
@@ -950,10 +974,10 @@ def maamp(T, m, include=None, discords=False, p=2.0):
         p,
         p_norm,
         p_norm_first,
-        k,
+        l,
         start + 1,
         include,
         discords,
     )
 
-    return P, I
+    return mparray(P_=P, I_=I)
