@@ -652,7 +652,7 @@ def check_window_size(m, max_size=None, n=None):
 @njit(fastmath=config.STUMPY_FASTMATH_TRUE)
 def _sliding_dot_product(Q, T):
     """
-    A Numba JIT-compiled implementation of the sliding window dot product.
+    A Numba JIT-compiled implementation of the sliding dot product.
 
     Parameters
     ----------
@@ -667,18 +667,21 @@ def _sliding_dot_product(Q, T):
     out : numpy.ndarray
         Sliding dot product between `Q` and `T`.
     """
-    m = Q.shape[0]
+    m = len(Q)
     l = T.shape[0] - m + 1
     out = np.empty(l)
     for i in range(l):
-        out[i] = np.dot(Q, T[i : i + m])
+        result = 0.0
+        for j in range(m):
+            result += Q[j] * T[i + j]
+        out[i] = result
 
     return out
 
 
 def sliding_dot_product(Q, T):
     """
-    Use FFT convolution to calculate the sliding window dot product.
+    Use FFT or direct convolution to calculate the sliding dot product.
 
     Parameters
     ----------
@@ -701,18 +704,11 @@ def sliding_dot_product(Q, T):
     <https://www.cs.ucr.edu/~eamonn/PID4481997_extend_Matrix%20Profile_I.pdf>`__
 
     See Table I, Figure 4
-
-    Following the inverse FFT, Fig. 4 states that only cells [m-1:n]
-    contain valid dot products
-
-    Padding is done automatically in fftconvolve step
     """
-    n = T.shape[0]
-    m = Q.shape[0]
-    Qr = np.flipud(Q)  # Reverse/flip Q
-    QT = convolve(Qr, T)
+    # mode='valid' returns output of convolution where the two
+    # sequences fully overlap.
 
-    return QT.real[m - 1 : n]
+    return convolve(np.flipud(Q), T, mode="valid")
 
 
 @njit(
