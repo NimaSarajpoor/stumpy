@@ -22,7 +22,7 @@ def dask_cluster():
         dashboard_address=None,
         worker_dashboard_address=None,
     )
-    yield cluster
+    yield cluster.scheduler_address
     cluster.close()
 
 

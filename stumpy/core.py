@@ -2113,8 +2113,9 @@ def _preprocess(T, copy=True):
         Time series or sequence
 
     copy : bool, default True
-        A boolean value that indicates whether the process should be done on
-        input `T` (False) or its copy (True).
+        A boolean value that indicates whether the process should be performed on
+        input array `T` (False) or its copy (True). If `T` is a dataframe, then the
+        data is always copied into a brand new array.
 
     Returns
     -------
@@ -2128,6 +2129,9 @@ def _preprocess(T, copy=True):
             T = T.clone()
 
     T = transpose_dataframe(T)
+
+    if "pandas" in str(type(T)):
+        T = T.to_numpy(copy=True)
 
     if "polars" in str(type(T)):
         T = T.to_numpy(writable=True)
@@ -2166,8 +2170,9 @@ def preprocess(
         Window size
 
     copy : bool, default True
-        A boolean value that indicates whether the process should be done on
-        input `T` (False) or its copy (True).
+        A boolean value that indicates whether the process should be performed on
+        input array `T` (False) or its copy (True). If `T` is a dataframe, then the
+        data is always copied into a brand new array.
 
     M_T : numpy.ndarray, default None
         Rolling mean
@@ -2229,8 +2234,9 @@ def preprocess_non_normalized(T, m, copy=True):
         Window size
 
     copy : bool, default True
-        A boolean value that indicates whether the process should be done on
-        input `T` (False) or its copy (True).
+        A boolean value that indicates whether the process should be performed on
+        input array `T` (False) or its copy (True). If `T` is a dataframe, then the
+        data is always copied into a brand new array.
 
     Returns
     -------
@@ -2289,8 +2295,9 @@ def preprocess_diagonal(
         corresponding value set to False in this boolean array.
 
     copy : bool, default True
-        A boolean value that indicates whether the process should be done on
-        input `T` (False) or its copy (True).
+        A boolean value that indicates whether the process should be performed on
+        input array `T` (False) or its copy (True). If `T` is a dataframe, then the
+        data is always copied into a brand new array.
 
     Returns
     -------

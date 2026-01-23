@@ -54,14 +54,14 @@ check_errs()
 check_black()
 {
     echo "Checking Black Code Formatting"
-    black --check --exclude=".*\.ipynb" --extend-exclude=".venv" --diff ./
+    black --check --exclude=".*\.ipynb" --extend-exclude=".venv|.pixi" --diff ./
     check_errs $?
 }
 
 check_isort()
 {
     echo "Checking iSort Import Formatting"
-    isort --profile black --skip .venv --check-only ./
+    isort --profile black --skip .venv --skip .pixi --check-only ./
     check_errs $?
 }
 
@@ -75,7 +75,7 @@ check_docstrings()
 check_flake()
 {
     echo "Checking Flake8 Style Guide Enforcement"
-    flake8 --extend-exclude=.venv ./
+    flake8 --extend-exclude=.venv/,.pixi/ ./
     check_errs $?
 }
 

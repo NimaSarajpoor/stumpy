@@ -234,7 +234,6 @@ def get_latest_scipy_version():
     """
     Reteive the latest SciPy version
     """
-    print(_get_all_pkg_versions("scipy")[-1])
     return _get_all_pkg_versions("scipy")[-1]
 
 

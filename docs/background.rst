@@ -1,6 +1,6 @@
------------------------
-Background & Motivation
------------------------
+----------
+Background
+----------
 
 The following video provides the background and motivation for developing and open sourcing STUMPY:
 

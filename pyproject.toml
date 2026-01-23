@@ -53,7 +53,8 @@ ci = [
     "pytest >= 4.4.1",
     "isort >= 5.11.0",
     'tbb >= 2019.5 ; platform_system == "Linux"',
-    "polars >= 1.14.0"
+    "polars >= 1.14.0",
+    "lxml"
 ]
 
 [project.urls]
@@ -61,3 +62,55 @@ Homepage = "https://github.com/stumpy-dev/stumpy"
 Documentation = "https://stumpy.readthedocs.io/en/latest/"
 Repository = "https://github.com/stumpy-dev/stumpy"
 
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
+
+[tool.pixi.dependencies]
+# All Conda dependencies.
+# Ignores PyPI [dependencies] and [project.optional-dependencies] above
+python = ">=3.10"
+numpy = ">=1.24"
+scipy = ">=1.10"
+numba = ">=0.61.2"
+# ci
+pandas = ">=0.20.0"
+dask = ">=1.2.2"
+distributed =">=1.28.1"
+coverage = ">=4.5.3"
+flake8 = ">=3.7.7"
+flake8-docstrings = ">=1.5.0"
+black = ">=22.1.0"
+pytest = ">=4.4.1"
+isort = ">=5.11.0"
+polars = ">=1.14.0"
+pip = "*"
+lxml = "*"
+fftw = "*"
+pyfftw = "*"
+# readthedocs
+sphinx = ">=3.5.3"
+pydata-sphinx-theme = "*"
+jupyterlab = "*"
+matplotlib = "*"
+scikit-learn = "*"
+numpydoc = "*"
+myst-nb = "*"
+jupyterlab-myst = "*"
+sphinx-togglebutton = "*"
+
+[tool.pixi.activation]
+# Always execute ./setup.sh when activating the default environment
+scripts = ["setup.sh"]
+
+[tool.pixi.target.linux-64.dependencies]
+# Conda dependencies specific to linux-64
+tbb = ">=2019.5"
+
+[tool.pixi.tasks]
+# Note that ./setup.sh is executed during [tool.pixi.activation] above
+tests = "./test.sh"
+coverage = "./test.sh coverage"
+docs = "cd docs && ./setup.sh"
+black = 'black --exclude=".*\.ipynb" --extend-exclude=".venv|.pixi" --diff ./'
+isort = 'isort --profile black --skip .venv --skip .pixi ./'

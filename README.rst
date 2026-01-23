@@ -200,17 +200,29 @@ Supported Python and NumPy versions are determined according to the `NEP 29 depr
 Where to get it
 ---------------
 
-Conda install (preferred):
+conda:
 
 .. code:: bash
     
     conda install -c conda-forge stumpy
 
-PyPI install, presuming you have numpy, scipy, and numba installed: 
+pip:
 
 .. code:: bash
 
     python -m pip install stumpy
+
+pixi:
+
+.. code:: bash
+
+    pixi add stumpy
+
+uv:
+
+.. code:: bash
+
+    uv add stumpy
 
 To install stumpy from source, see the instructions in the `documentation <https://stumpy.readthedocs.io/en/latest/install.html>`__.
 

@@ -7,7 +7,7 @@
 .pytest_cache
 LOG*
 PID
-.coverage*
+.coverage
 coverage.json
 coverage.stumpy.json
 dask-worker-space
@@ -22,3 +22,6 @@ docs/_build
 .directory
 test.py
 *.nbconvert.ipynb
+.pixi
+pixi.lock
+uv.lock

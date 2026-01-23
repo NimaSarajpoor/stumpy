@@ -109,6 +109,7 @@ html_logo = "_static/logo.png"
 # documentation.
 #
 html_theme_options = {
+    "header_links_before_dropdown": 7,
     "icon_links": [
         {
             "name": "GitHub",
@@ -144,7 +145,9 @@ html_css_files = ["css/custom.css"]
 # default: ``['localtoc.html', 'relations.html', 'sourcelink.html',
 # 'searchbox.html']``.
 #
-# html_sidebars = {}
+# html_sidebars = {
+#     "**": []
+# }
 
 
 # -- Options for HTMLHelp output ---------------------------------------------
