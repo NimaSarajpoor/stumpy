@@ -12,10 +12,9 @@ import numpy as np
 from numba import cuda, njit, prange
 from scipy import linalg
 from scipy.ndimage import maximum_filter1d, minimum_filter1d
-from scipy.signal import convolve
 from scipy.spatial.distance import cdist
 
-from . import config
+from . import config, sdp
 
 try:
     from numba.cuda.cudadrv.driver import _raise_driver_not_found
@@ -652,7 +651,8 @@ def check_window_size(m, max_size=None, n=None):
 @njit(fastmath=config.STUMPY_FASTMATH_TRUE)
 def _sliding_dot_product(Q, T):
     """
-    A Numba JIT-compiled implementation of the sliding dot product.
+    A wrapper for numba JIT-compiled implementation of
+    the sliding dot product.
 
     Parameters
     ----------
@@ -667,21 +667,12 @@ def _sliding_dot_product(Q, T):
     out : numpy.ndarray
         Sliding dot product between `Q` and `T`.
     """
-    m = len(Q)
-    l = T.shape[0] - m + 1
-    out = np.empty(l)
-    for i in range(l):
-        result = 0.0
-        for j in range(m):
-            result += Q[j] * T[i + j]
-        out[i] = result
-
-    return out
+    return sdp._njit_sliding_dot_product(Q, T)
 
 
 def sliding_dot_product(Q, T):
     """
-    Use FFT or direct convolution to calculate the sliding dot product.
+    A wrapper for convolution implementation of the sliding dot product.
 
     Parameters
     ----------
@@ -695,20 +686,8 @@ def sliding_dot_product(Q, T):
     -------
     output : numpy.ndarray
         Sliding dot product between `Q` and `T`.
-
-    Notes
-    -----
-    Calculate the sliding dot product
-
-    `DOI: 10.1109/ICDM.2016.0179 \
-    <https://www.cs.ucr.edu/~eamonn/PID4481997_extend_Matrix%20Profile_I.pdf>`__
-
-    See Table I, Figure 4
     """
-    # mode='valid' returns output of convolution where the two
-    # sequences fully overlap.
-
-    return convolve(np.flipud(Q), T, mode="valid")
+    return sdp._convolve_sliding_dot_product(Q, T)
 
 
 @njit(
