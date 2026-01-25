@@ -282,4 +282,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         return real_arr[m - 1 : n]
 
 
-_pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT()
+if FFTW_IS_AVAILABLE:
+    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT()
+else:  # pragma: no cover
+    _pyfftw_sliding_dot_product = None
