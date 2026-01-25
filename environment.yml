@@ -27,3 +27,5 @@ dependencies:
   - jupyterlab-myst>=2.0.0
   - myst-nb>=1.0.0
   - polars>=1.14.0
+  - fftw>=3.3
+  - pyfftw>=0.15.0

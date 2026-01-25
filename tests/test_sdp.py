@@ -172,3 +172,79 @@ def test_sdp_power2():
             raise e
 
     return
+
+
+def test_pyfftw_sdp_max_n():
+    # When `len(T)` larger than `max_n` in pyfftw_sdp,
+    # the internal preallocated arrays should be resized.
+    # This test checks that functionality.
+    sliding_dot_product = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**10)
+
+    # len(T) > max_n to trigger array resizing
+    T = np.random.rand(2**11)
+    Q = np.random.rand(2**8)
+
+    comp = sliding_dot_product(Q, T)
+    ref = naive_sliding_dot_product(Q, T)
+
+    np.testing.assert_allclose(comp, ref)
+
+    return
+
+
+def test_pyfftw_sdp_cache():
+    # To ensure that the caching mechanism in
+    # pyfftw_sdp is working as intended
+    sliding_dot_product = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**10)
+    assert sliding_dot_product.rfft_objects == {}
+    assert sliding_dot_product.irfft_objects == {}
+
+    T = np.random.rand(2**5)
+    Q = np.random.rand(2**2)
+
+    n_threads = 1
+    planning_flag = "FFTW_ESTIMATE"
+    sliding_dot_product(Q, T, n_threads=n_threads, planning_flag=planning_flag)
+
+    # Check that the FFTW objects are cached
+    expected_key = (len(T), n_threads, planning_flag)
+    assert expected_key in sliding_dot_product.rfft_objects
+    assert expected_key in sliding_dot_product.irfft_objects
+
+    return
+
+
+def test_pyfftw_sdp_update_arrays():
+    # To ensure that the cached FFTW objects
+    # can be reused when preallocated arrays
+    # are updated.
+    sliding_dot_product = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**10)
+
+    n_threads = 1
+    planning_flag = "FFTW_ESTIMATE"
+
+    T1 = np.random.rand(2**5)
+    Q1 = np.random.rand(2**2)
+    sliding_dot_product(Q1, T1, n_threads=n_threads, planning_flag=planning_flag)
+
+    # len(T2) > max_n to trigger array resizing
+    T2 = np.random.rand(2**11)
+    Q2 = np.random.rand(2**3)
+    sliding_dot_product(Q2, T2, n_threads=n_threads, planning_flag=planning_flag)
+
+    # Check if the FFTW objects cached for inputs (Q1, T1)
+    # can be reused when preallocated arrays are resized
+    # after calling with (Q2, T2)
+    key1 = (len(T1), n_threads, planning_flag)
+    rfft_obj_before = sliding_dot_product.rfft_objects[key1]
+    irfft_obj_before = sliding_dot_product.irfft_objects[key1]
+
+    comp = sliding_dot_product(Q1, T1, n_threads=n_threads, planning_flag=planning_flag)
+    ref = naive_sliding_dot_product(Q1, T1)
+
+    # test for correctness
+    np.testing.assert_allclose(comp, ref)
+
+    # Check that the same FFTW objects are reused
+    assert sliding_dot_product.rfft_objects[key1] is rfft_obj_before
+    assert sliding_dot_product.irfft_objects[key1] is irfft_obj_before

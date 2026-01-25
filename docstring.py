@@ -23,7 +23,7 @@ def get_docstring_args(fd, file_name, func_name, class_name=None):
         msg += f"function/method: {func_name}\n"
         raise RuntimeError(msg)
 
-    if class_name is None:
+    if len(re.findall(r"Returns", docstring)) > 0:
         params_section = re.findall(
             r"(?<=Parameters)(.*)(?=Returns)", docstring, re.DOTALL
         )[0]
@@ -43,7 +43,7 @@ def get_signature_args(fd):
     return set([a.arg for a in fd.args.args if a.arg != "self"])
 
 
-def check_args(doc_args, sig_args, file_name, func_name, class_name=None):
+def check_args(docstring_args, signature_args, file_name, func_name, class_name=None):
     """
     Compare docstring arguments and signature argments
     """
