@@ -54,6 +54,7 @@ ci = [
     "isort >= 5.11.0",
     'tbb >= 2019.5 ; platform_system == "Linux"',
     "polars >= 1.14.0",
+    "pyfftw >= 0.15.0",
     "lxml"
 ]
 
@@ -86,8 +87,8 @@ isort = ">=5.11.0"
 polars = ">=1.14.0"
 pip = "*"
 lxml = "*"
-fftw = "*"
-pyfftw = "*"
+fftw = ">=3.3"
+pyfftw = ">=0.15.0"
 # readthedocs
 sphinx = ">=3.5.3"
 pydata-sphinx-theme = "*"
