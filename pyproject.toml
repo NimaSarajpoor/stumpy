@@ -54,7 +54,6 @@ ci = [
     "isort >= 5.11.0",
     'tbb >= 2019.5 ; platform_system == "Linux"',
     "polars >= 1.14.0",
-    "pyfftw >= 0.15.0",
     "lxml"
 ]
 
