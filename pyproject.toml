@@ -87,8 +87,9 @@ isort = ">=5.11.0"
 polars = ">=1.14.0"
 pip = "*"
 lxml = "*"
-fftw = ">=3.3"
-pyfftw = ">=0.15.0"
+fftw = "*"
+pyfftw = "*"
+numba-cuda = "*"
 # readthedocs
 sphinx = ">=3.5.3"
 pydata-sphinx-theme = "*"
@@ -113,5 +114,5 @@ tbb = ">=2019.5"
 tests = "./test.sh"
 coverage = "./test.sh coverage"
 docs = "cd docs && ./setup.sh"
-black = 'black --exclude=".*\.ipynb" --extend-exclude=".venv|.pixi" --diff ./'
+black = 'black --exclude=".*\.ipynb" --extend-exclude=".venv|.pixi" ./'
 isort = 'isort --profile black --skip .venv --skip .pixi ./'
