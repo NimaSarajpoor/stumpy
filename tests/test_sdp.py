@@ -182,8 +182,8 @@ def test_sdp_power2():
     return
 
 
-def test_pyfftw_sdp_max_n():
-    if not PYFFTW_IMPORTED:  # pragma: no cover
+def test_pyfftw_sdp_max_n():  # pragma: no cover
+    if not PYFFTW_IMPORTED:
         pytest.skip("Skipping Test PyFFTW Not Installed")
 
     # When `len(T)` larger than `max_n` in pyfftw_sdp,
@@ -203,8 +203,8 @@ def test_pyfftw_sdp_max_n():
     return
 
 
-def test_pyfftw_sdp_cache():
-    if not PYFFTW_IMPORTED:  # pragma: no cover
+def test_pyfftw_sdp_cache():  # pragma: no cover
+    if not PYFFTW_IMPORTED:
         pytest.skip("Skipping Test PyFFTW Not Installed")
 
     # To ensure that the caching mechanism in
@@ -228,13 +228,13 @@ def test_pyfftw_sdp_cache():
     return
 
 
-def test_pyfftw_sdp_update_arrays():
-    if not PYFFTW_IMPORTED:  # pragma: no cover
+def test_pyfftw_sdp_update_arrays():  # pragma: no cover
+    if not PYFFTW_IMPORTED:
         pytest.skip("Skipping Test PyFFTW Not Installed")
 
     # To ensure that the cached FFTW objects
-    # can be reused when preallocated arrays
-    # are updated.
+    # can be reused later when preallocated
+    # arrays were updated.
     sliding_dot_product = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**10)
 
     n_threads = 1

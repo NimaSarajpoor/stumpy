@@ -6,7 +6,7 @@ from scipy.signal import convolve
 
 from . import config
 
-try:
+try:  # pragma: no cover
     import pyfftw
 
     FFTW_IS_AVAILABLE = True
@@ -108,7 +108,7 @@ def _pocketfft_sliding_dot_product(Q, T):
     return c2r(False, np.multiply(fft_2d[0], fft_2d[1]), n=next_fast_n)[m - 1 : n]
 
 
-class _PYFFTW_SLIDING_DOT_PRODUCT:
+class _PYFFTW_SLIDING_DOT_PRODUCT:  # pragma: no cover
     """
     A class to compute the sliding dot product using FFTW via pyfftw.
 
@@ -286,7 +286,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         return real_arr[m - 1 : n]
 
 
-if FFTW_IS_AVAILABLE:
+if FFTW_IS_AVAILABLE:  # pragma: no cover
     _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT()
 else:  # pragma: no cover
     _pyfftw_sliding_dot_product = None
