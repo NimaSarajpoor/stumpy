@@ -167,7 +167,7 @@ set_ray_coveragerc()
 show_coverage_report()
 {
     set_ray_coveragerc
-    coverage report --show-missing --fail-under=100 --skip-covered --omit=fastmath.py,docstring.py,versions.py,ray_python_version.py $fcoveragerc
+    coverage report --show-missing --fail-under=100 --skip-covered --omit=fastmath.py,docstring.py,versions.py $fcoveragerc
     check_errs $?
 }
 
