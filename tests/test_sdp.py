@@ -9,6 +9,14 @@ from scipy.fft import next_fast_len
 
 from stumpy import sdp
 
+try:  # pragma: no cover
+    import pyfftw
+
+    PYFFTW_IMPORTED = True
+except ImportError:  # pragma: no cover
+    PYFFTW_IMPORTED = False
+
+
 # README
 # Real FFT algorithm performs more efficiently when the length
 # of the input array `arr` is composed of small prime factors.
@@ -175,6 +183,9 @@ def test_sdp_power2():
 
 
 def test_pyfftw_sdp_max_n():
+    if not PYFFTW_IMPORTED:  # pragma: no cover
+        pytest.skip("Skipping Test PyFFTW Not Installed")
+
     # When `len(T)` larger than `max_n` in pyfftw_sdp,
     # the internal preallocated arrays should be resized.
     # This test checks that functionality.
@@ -193,6 +204,9 @@ def test_pyfftw_sdp_max_n():
 
 
 def test_pyfftw_sdp_cache():
+    if not PYFFTW_IMPORTED:  # pragma: no cover
+        pytest.skip("Skipping Test PyFFTW Not Installed")
+
     # To ensure that the caching mechanism in
     # pyfftw_sdp is working as intended
     sliding_dot_product = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**10)
@@ -207,7 +221,7 @@ def test_pyfftw_sdp_cache():
     sliding_dot_product(Q, T, n_threads=n_threads, planning_flag=planning_flag)
 
     # Check that the FFTW objects are cached
-    expected_key = (len(T), n_threads, planning_flag)
+    expected_key = (pyfftw.next_fast_len(len(T)), n_threads, planning_flag)
     assert expected_key in sliding_dot_product.rfft_objects
     assert expected_key in sliding_dot_product.irfft_objects
 
@@ -215,6 +229,9 @@ def test_pyfftw_sdp_cache():
 
 
 def test_pyfftw_sdp_update_arrays():
+    if not PYFFTW_IMPORTED:  # pragma: no cover
+        pytest.skip("Skipping Test PyFFTW Not Installed")
+
     # To ensure that the cached FFTW objects
     # can be reused when preallocated arrays
     # are updated.
@@ -235,7 +252,7 @@ def test_pyfftw_sdp_update_arrays():
     # Check if the FFTW objects cached for inputs (Q1, T1)
     # can be reused when preallocated arrays are resized
     # after calling with (Q2, T2)
-    key1 = (len(T1), n_threads, planning_flag)
+    key1 = (pyfftw.next_fast_len(len(T1)), n_threads, planning_flag)
     rfft_obj_before = sliding_dot_product.rfft_objects[key1]
     irfft_obj_before = sliding_dot_product.irfft_objects[key1]
 

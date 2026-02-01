@@ -170,6 +170,10 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
             Maximum length to preallocate arrays for. This will be the size of the
             real-valued array. A complex-valued array of size `1 + (max_n // 2)`
             will also be preallocated.
+
+        Returns
+        -------
+        None
         """
         # Preallocate arrays
         self.real_arr = pyfftw.empty_aligned(max_n, dtype="float64")
