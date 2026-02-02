@@ -6,6 +6,7 @@ custom_testfiles=()
 max_iter=10
 site_pkgs=$(python -c 'import site; print(site.getsitepackages()[0])')
 # Parse command line arguments
+fcoveragerc=""
 for var in "$@"
 do
     if [[ $var == "unit" ]]; then
@@ -138,67 +139,74 @@ check_ray()
     fi
 }
 
-init_coveragerc()
+gen_coveragerc_boilerplate()
 {
-    if [ ! -f .coveragerc_optional ]; then
-        echo "[report]" > .coveragerc_optional
-        echo "; Regexes for lines to exclude from consideration" >> .coveragerc_optional
-        echo "exclude_also =" >> .coveragerc_optional
+    # Check if file does not exist OR file is empty
+    if [[ ! -e .coveragerc_override ]] || [[ ! -s .coveragerc_override ]]; then
+        echo "[report]" > .coveragerc_override
+        echo "; Regexes for lines to exclude from consideration" >> .coveragerc_override
+        echo "exclude_also =" >> .coveragerc_override
     fi
 }
 
 gen_ray_coveragerc()
 {
-    # Generate a .coveragerc_ray file that excludes Ray functions and tests
-    # echo "[report]" > .coveragerc_ray
-    init_coveragerc
-
-    echo "    def .*_ray_*" >> .coveragerc_optional
-    echo "    def .*_ray\(*" >> .coveragerc_optional
-    echo "    def ray_.*" >> .coveragerc_optional
-    echo "    def test_.*_ray*" >> .coveragerc_optional
+    # Generate a .coveragerc_override file that excludes Ray functions and tests
+    gen_coveragerc_boilerplate
+    echo "    def .*_ray_*" >> .coveragerc_override
+    echo "    def .*_ray\(*" >> .coveragerc_override
+    echo "    def ray_.*" >> .coveragerc_override
+    echo "    def test_.*_ray*" >> .coveragerc_override
 }
 
-has_fftw_pyfftw()
+check_fftw_pyfftw()
 {
-    command -v fftw-wisdom &> /dev/null \
-    && python -c "import pyfftw" &> /dev/null
+    if ! command -v fftw-wisdom &> /dev/null \
+    || ! python -c "import pyfftw" &> /dev/null;
+    then
+        echo "FFTW and/or pyFFTW Not Installed"
+    else
+        echo "FFTW and pyFFTW Installed"
+    fi
 }
 
 gen_pyfftw_coveragerc()
 {
-    init_coveragerc
-    echo "    class .*_PYFFTW*" >> .coveragerc_optional
-    echo "    def test_.*_pyfftw*" >> .coveragerc_optional
+    gen_coveragerc_boilerplate
+    echo "    class .*_PYFFTW*" >> .coveragerc_override
+    echo "    def test_.*_pyfftw*" >> .coveragerc_override
 }
 
 
-set_optional_coveragerc()
+set_coveragerc()
 {
     fcoveragerc=""
 
-    if ! command -v ray &> /dev/null; then
+    if ! command -v ray &> /dev/null; 
+    then
         echo "Ray not installed"
         gen_ray_coveragerc
     else
         echo "Ray installed"
     fi
 
-    if ! has_fftw_pyfftw; then
-        echo "pyFFTW / FFTW not available"
+    if ! command -v fftw-wisdom &> /dev/null \
+    || ! python -c "import pyfftw" &> /dev/null;
+    then
+        echo "FFTW and/or pyFFTW not available"
         gen_pyfftw_coveragerc
     else
         echo "pyFFTW available"
     fi
 
-    if [ -f .coveragerc_optional ]; then
-        fcoveragerc="--rcfile=.coveragerc_optional"
+    if [ -f .coveragerc_override ]; then
+        fcoveragerc="--rcfile=.coveragerc_override"
     fi
 }
 
 show_coverage_report()
 {
-    set_optional_coveragerc
+    set_coveragerc
     coverage report --show-missing --fail-under=100 --skip-covered --omit=fastmath.py,docstring.py,versions.py $fcoveragerc
     check_errs $?
 }
@@ -350,7 +358,7 @@ clean_up()
     rm -rf "tests/__pycache__/"
     rm -rf build dist stumpy.egg-info __pycache__
     rm -f docs/*.nbconvert.ipynb
-    rm -rf ".coveragerc_ray"
+    rm -rf ".coveragerc_override"
     if [ -d "$site_pkgs/stumpy/__pycache__" ]; then
         rm -rf $site_pkgs/stumpy/__pycache__/*nb*
     fi
@@ -385,6 +393,7 @@ check_print
 check_pkg_imports
 check_naive
 check_ray
+check_fftw_pyfftw
 
 
 if [[ -z $NUMBA_DISABLE_JIT || $NUMBA_DISABLE_JIT -eq 0 ]]; then
