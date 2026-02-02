@@ -168,8 +168,7 @@ has_fftw_pyfftw()
 gen_pyfftw_coveragerc()
 {
     init_coveragerc
-    echo "    def .*_PYFFTW*" >> .coveragerc_optional
-    echo "    def .*_pyfftw*" >> .coveragerc_optional
+    echo "    class .*_PYFFTW*" >> .coveragerc_optional
     echo "    def test_.*_pyfftw*" >> .coveragerc_optional
 }
 
