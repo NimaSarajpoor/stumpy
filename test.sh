@@ -138,35 +138,68 @@ check_ray()
     fi
 }
 
+init_coveragerc()
+{
+    if [ ! -f .coveragerc_optional ]; then
+        echo "[report]" > .coveragerc_optional
+        echo "; Regexes for lines to exclude from consideration" >> .coveragerc_optional
+        echo "exclude_also =" >> .coveragerc_optional
+    fi
+}
+
 gen_ray_coveragerc()
 {
     # Generate a .coveragerc_ray file that excludes Ray functions and tests
-    echo "[report]" > .coveragerc_ray
-    echo "; Regexes for lines to exclude from consideration" >> .coveragerc_ray
-    echo "exclude_also =" >> .coveragerc_ray
-    echo "    def .*_ray_*" >> .coveragerc_ray
-    echo "    def ,*_ray\(*" >> .coveragerc_ray
-    echo "    def ray_.*" >> .coveragerc_ray
-    echo "    def test_.*_ray*" >> .coveragerc_ray
+    # echo "[report]" > .coveragerc_ray
+    init_coveragerc
+
+    echo "    def .*_ray_*" >> .coveragerc_optional
+    echo "    def .*_ray\(*" >> .coveragerc_optional
+    echo "    def ray_.*" >> .coveragerc_optional
+    echo "    def test_.*_ray*" >> .coveragerc_optional
 }
 
-set_ray_coveragerc()
+has_fftw_pyfftw()
 {
-    # If `ray` command is not found then generate a .coveragerc_ray file
-    if ! command -v ray &> /dev/null
-    then
-        echo "Ray Not Installed"
+    command -v fftw-wisdom &> /dev/null \
+    && python -c "import pyfftw" &> /dev/null
+}
+
+gen_pyfftw_coveragerc()
+{
+    init_coveragerc
+    echo "    def .*_PYFFTW*" >> .coveragerc_optional
+    echo "    def .*_pyfftw*" >> .coveragerc_optional
+    echo "    def test_.*_pyfftw*" >> .coveragerc_optional
+}
+
+
+set_optional_coveragerc()
+{
+    fcoveragerc=""
+
+    if ! command -v ray &> /dev/null; then
+        echo "Ray not installed"
         gen_ray_coveragerc
-        fcoveragerc="--rcfile=.coveragerc_ray"
     else
-        echo "Ray Installed"
-        fcoveragerc=""
+        echo "Ray installed"
+    fi
+
+    if ! has_fftw_pyfftw; then
+        echo "pyFFTW / FFTW not available"
+        gen_pyfftw_coveragerc
+    else
+        echo "pyFFTW available"
+    fi
+
+    if [ -f .coveragerc_optional ]; then
+        fcoveragerc="--rcfile=.coveragerc_optional"
     fi
 }
 
 show_coverage_report()
 {
-    set_ray_coveragerc
+    set_optional_coveragerc
     coverage report --show-missing --fail-under=100 --skip-covered --omit=fastmath.py,docstring.py,versions.py $fcoveragerc
     check_errs $?
 }

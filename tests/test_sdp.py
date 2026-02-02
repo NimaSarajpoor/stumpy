@@ -182,8 +182,8 @@ def test_sdp_power2():
     return
 
 
-def test_pyfftw_sdp_max_n():  # pragma: no cover
-    if not PYFFTW_IMPORTED:
+def test_pyfftw_sdp_max_n():
+    if not PYFFTW_IMPORTED:  # pragma: no cover
         pytest.skip("Skipping Test PyFFTW Not Installed")
 
     # When `len(T)` larger than `max_n` in pyfftw_sdp,
@@ -203,8 +203,8 @@ def test_pyfftw_sdp_max_n():  # pragma: no cover
     return
 
 
-def test_pyfftw_sdp_cache():  # pragma: no cover
-    if not PYFFTW_IMPORTED:
+def test_pyfftw_sdp_cache():
+    if not PYFFTW_IMPORTED:  # pragma: no cover
         pytest.skip("Skipping Test PyFFTW Not Installed")
 
     # To ensure that the caching mechanism in
@@ -228,8 +228,8 @@ def test_pyfftw_sdp_cache():  # pragma: no cover
     return
 
 
-def test_pyfftw_sdp_update_arrays():  # pragma: no cover
-    if not PYFFTW_IMPORTED:
+def test_pyfftw_sdp_update_arrays():
+    if not PYFFTW_IMPORTED:  # pragma: no cover
         pytest.skip("Skipping Test PyFFTW Not Installed")
 
     # To ensure that the cached FFTW objects

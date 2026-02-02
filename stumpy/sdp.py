@@ -108,7 +108,7 @@ def _pocketfft_sliding_dot_product(Q, T):
     return c2r(False, np.multiply(fft_2d[0], fft_2d[1]), n=next_fast_n)[m - 1 : n]
 
 
-class _PYFFTW_SLIDING_DOT_PRODUCT:  # pragma: no cover
+class _PYFFTW_SLIDING_DOT_PRODUCT:
     """
     A class to compute the sliding dot product using FFTW via pyfftw.
 
