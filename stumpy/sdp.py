@@ -1,5 +1,3 @@
-import warnings
-
 import numpy as np
 from numba import njit
 from scipy.fft import next_fast_len
@@ -308,14 +306,8 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         return real_arr[m - 1 : n]
 
 
-if FFTW_IS_AVAILABLE:  # pragma: no cover
-    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT()
-else:  # pragma: no cover
-    msg = (
-        "Couldn't import pyFFTW. Set _pyfftw_sliding_dot_product " + "function to None"
-    )
-    warnings.warn(msg)
-    _pyfftw_sliding_dot_product = None
+if FFTW_IS_AVAILABLE:
+    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**20)
 
 
 def _sliding_dot_product(
@@ -347,20 +339,14 @@ def _sliding_dot_product(
         and LB_T<=len(T)<UB_T
 
     default_sdp : function
-        A function to compute sliding_dot_product when
-        the provided `sdp_func` in boundaries is None
-        or `(len(Q), len(T))` does not fit into the
-        provided boundaries.
+        A function to compute sliding_dot_product
+        when `(len(Q), len(T))` does not fit into
+        the provided boundaries.
 
     Returns
     -------
     output : numpy.ndarray
         Sliding dot product between `Q` and `T`.
-
-    Notes
-    -----
-    The function `_pyfftw_sliding_dot_product` will be set to None
-    if pyFFTW cannot be imported
     """
     m = len(Q)
     n = len(T)
@@ -369,7 +355,6 @@ def _sliding_dot_product(
         if (
             Q_boundaries[0] <= m < Q_boundaries[1]
             and T_boundaries[0] <= n < T_boundaries[1]
-            and sdp_func is not None
         ):
             return sdp_func(Q, T)
 
