@@ -265,3 +265,25 @@ def test_pyfftw_sdp_update_arrays():
     # Check that the same FFTW objects are reused
     assert sliding_dot_product.rfft_objects[key1] is rfft_obj_before
     assert sliding_dot_product.irfft_objects[key1] is irfft_obj_before
+
+    return
+
+
+def test_sdp_empty_boundaries():
+    # This is to test sdp._sliding_dot_product
+    # when the `boundaries` parameter is set to
+    # an empty list
+    pmin = 3
+    pmax = 13
+    for q in range(pmin, pmax + 1):
+        n_Q = 2**q
+        for p in range(q, pmax + 1):
+            n_T = 2**p
+            Q = np.random.rand(n_Q)
+            T = np.random.rand(n_T)
+
+            ref = naive_sliding_dot_product(Q, T)
+            comp = sdp._sliding_dot_product(Q, T, boundaries=[])
+            npt.assert_allclose(comp, ref)
+
+    return
