@@ -1,8 +1,10 @@
+import warnings
+
 import numpy as np
 from numba import njit
 from scipy.fft import next_fast_len
 from scipy.fft._pocketfft.basic import c2r, r2c
-from scipy.signal import convolve
+from scipy.signal import convolve, oaconvolve
 
 from . import config
 
@@ -74,6 +76,26 @@ def _convolve_sliding_dot_product(Q, T):
     # sequences fully overlap.
 
     return convolve(np.flipud(Q), T, mode="valid")
+
+
+def _oaconvolve_sliding_dot_product(Q, T):
+    """
+    Use scipy's oaconvolve to calculate the sliding dot product.
+
+    Parameters
+    ----------
+    Q : numpy.ndarray
+        Query array or subsequence
+
+    T : numpy.ndarray
+        Time series or sequence
+
+    Returns
+    -------
+    output : numpy.ndarray
+        Sliding dot product between `Q` and `T`.
+    """
+    return oaconvolve(np.ascontiguousarray(Q[::-1]), T, mode="valid")
 
 
 def _pocketfft_sliding_dot_product(Q, T):
@@ -289,4 +311,68 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
 if FFTW_IS_AVAILABLE:  # pragma: no cover
     _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT()
 else:  # pragma: no cover
+    msg = (
+        "Couldn't import pyFFTW. Set _pyfftw_sliding_dot_product " + "function to None"
+    )
+    warnings.warn(msg)
     _pyfftw_sliding_dot_product = None
+
+
+def _sliding_dot_product(
+    Q,
+    T,
+    boundaries=[
+        [(-np.inf, 2**7 + 1), (-np.inf, np.inf), _njit_sliding_dot_product],
+    ],
+    default_sdp=_oaconvolve_sliding_dot_product,
+):
+    """
+    Compute the sliding dot product between the query Q
+    and the time series T by using different algorithms
+    for different `len(Q), len(T)` according to the
+    boundaries.
+
+    Parameters
+    ----------
+    Q : numpy.ndarray
+        Query array or subsequence
+
+    T : numpy.ndarray
+        Time series or sequence
+
+    boundaries : list
+        A nested list, where each item is a list
+        like [(LB_Q, UB_Q), (LB_T, UB_T), sdp_func]
+        The `sdp_func` is used if LB_Q<=len(Q)<UB_Q
+        and LB_T<=len(T)<UB_T
+
+    default_sdp : function
+        A function to compute sliding_dot_product when
+        the provided `sdp_func` in boundaries is None
+        or `(len(Q), len(T))` does not fit into the
+        provided boundaries.
+
+    Returns
+    -------
+    output : numpy.ndarray
+        Sliding dot product between `Q` and `T`.
+
+    Notes
+    -----
+    The function `_pyfftw_sliding_dot_product` will be set to None
+    if pyFFTW cannot be imported
+    """
+    m = len(Q)
+    n = len(T)
+
+    for Q_boundaries, T_boundaries, sdp_func in boundaries:
+        if (
+            Q_boundaries[0] <= m < Q_boundaries[1]
+            and T_boundaries[0] <= n < T_boundaries[1]
+            and sdp_func is not None
+        ):
+            return sdp_func(Q, T)
+
+    # when the union of regions is not comprehensive
+    # or sdp_func is None
+    return default_sdp(Q, T)
