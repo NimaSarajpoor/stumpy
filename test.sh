@@ -177,7 +177,6 @@ gen_pyfftw_coveragerc()
     echo "    def test_.*pyfftw*" >> .coveragerc_override
 }
 
-
 set_coveragerc()
 {
     fcoveragerc=""
@@ -193,10 +192,10 @@ set_coveragerc()
     if ! command -v fftw-wisdom &> /dev/null \
     || ! python -c "import pyfftw" &> /dev/null;
     then
-        echo "FFTW and/or pyFFTW not available"
+        echo "FFTW and/or pyFFTW not Installed"
         gen_pyfftw_coveragerc
     else
-        echo "pyFFTW available"
+        echo "FFTW and pyFFTW Installed"
     fi
 
     if [ -f .coveragerc_override ]; then
