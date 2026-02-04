@@ -672,7 +672,7 @@ def _sliding_dot_product(Q, T):
 
 def sliding_dot_product(Q, T):
     """
-    A wrapper for convolution implementation of the sliding dot product.
+    Compute the sliding dot product between `Q` and `T`.
 
     Parameters
     ----------
@@ -687,7 +687,7 @@ def sliding_dot_product(Q, T):
     output : numpy.ndarray
         Sliding dot product between `Q` and `T`.
     """
-    return sdp._convolve_sliding_dot_product(Q, T)
+    return sdp._sliding_dot_product(Q, T)
 
 
 @njit(

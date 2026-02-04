@@ -316,7 +316,7 @@ def _sliding_dot_product(
     boundaries=[
         [(-np.inf, 2**7 + 1), (-np.inf, np.inf), _njit_sliding_dot_product],
     ],
-    default_sdp=_oaconvolve_sliding_dot_product,
+    default_sdp=_convolve_sliding_dot_product,
 ):
     """
     Compute the sliding dot product between the query Q
