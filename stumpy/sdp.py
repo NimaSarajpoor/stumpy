@@ -333,15 +333,15 @@ def _sliding_dot_product(
         Time series or sequence
 
     boundaries : list
-        A nested list, where each item is a list
+        A nested list, where each element is a list
         like [(LB_Q, UB_Q), (LB_T, UB_T), sdp_func]
         The `sdp_func` is used if LB_Q<=len(Q)<UB_Q
         and LB_T<=len(T)<UB_T
 
     default_sdp : function
         A function to compute sliding_dot_product
-        when `(len(Q), len(T))` does not fit into
-        the provided boundaries.
+        when `len(Q)` and/or `len(T)` does not fall
+        in the provided boundaries
 
     Returns
     -------
@@ -358,6 +358,5 @@ def _sliding_dot_product(
         ):
             return sdp_func(Q, T)
 
-    # when the union of regions is not comprehensive
-    # or sdp_func is None
+    # when the union boundaries are not exhaustive
     return default_sdp(Q, T)
