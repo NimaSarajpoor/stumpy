@@ -6,7 +6,7 @@ import numba
 import numpy as np
 from numba import njit, prange
 
-from . import config, core
+from . import config, core, sdp
 from .scraamp import prescraamp, scraamp
 from .stump import _stump
 
@@ -235,7 +235,7 @@ def _compute_PI(
     QT = np.empty(w, dtype=np.float64)
     for i in indices[start:stop]:
         Q = T_A[i : i + m]
-        QT[:] = core._sliding_dot_product(Q, T_B)
+        QT[:] = sdp._njit_sliding_dot_product(Q, T_B)
         squared_distance_profile[:] = core._calculate_squared_distance_profile(
             m,
             QT,

@@ -12,10 +12,9 @@ import numpy as np
 from numba import cuda, njit, prange
 from scipy import linalg
 from scipy.ndimage import maximum_filter1d, minimum_filter1d
-from scipy.signal import convolve
 from scipy.spatial.distance import cdist
 
-from . import config
+from . import config, sdp
 
 try:
     from numba.cuda.cudadrv.driver import _raise_driver_not_found
@@ -649,36 +648,9 @@ def check_window_size(m, max_size=None, n=None):
             warnings.warn(msg)
 
 
-@njit(fastmath=config.STUMPY_FASTMATH_TRUE)
-def _sliding_dot_product(Q, T):
-    """
-    A Numba JIT-compiled implementation of the sliding window dot product.
-
-    Parameters
-    ----------
-    Q : numpy.ndarray
-        Query array or subsequence
-
-    T : numpy.ndarray
-        Time series or sequence
-
-    Returns
-    -------
-    out : numpy.ndarray
-        Sliding dot product between `Q` and `T`.
-    """
-    m = Q.shape[0]
-    l = T.shape[0] - m + 1
-    out = np.empty(l)
-    for i in range(l):
-        out[i] = np.dot(Q, T[i : i + m])
-
-    return out
-
-
 def sliding_dot_product(Q, T):
     """
-    Use FFT convolution to calculate the sliding window dot product.
+    Calculate the sliding window dot product.
 
     Parameters
     ----------
@@ -692,27 +664,8 @@ def sliding_dot_product(Q, T):
     -------
     output : numpy.ndarray
         Sliding dot product between `Q` and `T`.
-
-    Notes
-    -----
-    Calculate the sliding dot product
-
-    `DOI: 10.1109/ICDM.2016.0179 \
-    <https://www.cs.ucr.edu/~eamonn/PID4481997_extend_Matrix%20Profile_I.pdf>`__
-
-    See Table I, Figure 4
-
-    Following the inverse FFT, Fig. 4 states that only cells [m-1:n]
-    contain valid dot products
-
-    Padding is done automatically in fftconvolve step
     """
-    n = T.shape[0]
-    m = Q.shape[0]
-    Qr = np.flipud(Q)  # Reverse/flip Q
-    QT = convolve(Qr, T)
-
-    return QT.real[m - 1 : n]
+    return sdp._sliding_dot_product(Q, T)
 
 
 @njit(
@@ -1327,7 +1280,7 @@ def _p_norm_distance_profile(Q, T, p=2.0):
             T_squared[i] = (
                 T_squared[i - 1] - T[i - 1] * T[i - 1] + T[i + m - 1] * T[i + m - 1]
             )
-        QT = _sliding_dot_product(Q, T)
+        QT = sdp._njit_sliding_dot_product(Q, T)
         for i in range(l):
             p_norm_profile[i] = Q_squared + T_squared[i] - 2.0 * QT[i]
     else:
@@ -1900,7 +1853,7 @@ def _mass_distance_matrix(
         if np.any(~np.isfinite(Q[i : i + m])):  # pragma: no cover
             distance_matrix[i, :] = np.inf
         else:
-            QT = _sliding_dot_product(Q[i : i + m], T)
+            QT = sdp._njit_sliding_dot_product(Q[i : i + m], T)
             distance_matrix[i, :] = _mass(
                 Q[i : i + m],
                 T,

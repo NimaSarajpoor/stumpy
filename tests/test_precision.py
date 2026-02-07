@@ -8,7 +8,7 @@ import numpy.testing as npt
 import pytest
 from numba import cuda
 
-from stumpy import cache, config, core, fastmath
+from stumpy import cache, config, core, fastmath, sdp
 
 if cuda.is_available():
     from stumpy.gpu_stump import gpu_stump
@@ -90,7 +90,7 @@ def test_calculate_squared_distance():
     k = n - m + 1
     for i in range(k):
         for j in range(k):
-            QT_i = core._sliding_dot_product(T[i : i + m], T)
+            QT_i = sdp._njit_sliding_dot_product(T[i : i + m], T)
             dist_ij = core._calculate_squared_distance(
                 m,
                 QT_i[j],
@@ -102,7 +102,7 @@ def test_calculate_squared_distance():
                 T_subseq_isconstant[j],
             )
 
-            QT_j = core._sliding_dot_product(T[j : j + m], T)
+            QT_j = sdp._njit_sliding_dot_product(T[j : j + m], T)
             dist_ji = core._calculate_squared_distance(
                 m,
                 QT_j[i],
