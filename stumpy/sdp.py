@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit
+from scipy.signal import convolve
 
 from . import config
 
@@ -31,10 +32,34 @@ def _njit_sliding_dot_product(Q, T):
     return out
 
 
+def _convolve_sliding_dot_product(Q, T):
+    """
+    Use (direct or FFT) convolution to calculate the sliding window dot product.
+
+    Parameters
+    ----------
+    Q : numpy.ndarray
+        Query array or subsequence
+
+    T : numpy.ndarray
+        Time series or sequence
+
+    Returns
+    -------
+    output : numpy.ndarray
+        Sliding dot product between `Q` and `T`.
+    """
+    n = T.shape[0]
+    m = Q.shape[0]
+    Qr = np.flipud(Q)  # Reverse/flip Q
+    QT = convolve(Qr, T)
+
+    return QT.real[m - 1 : n]
+
+
 def _sliding_dot_product(Q, T):
     """
-    A wrapper function for the Numba JIT-compiled implementation of the sliding
-    window dot product.
+    Compute the sliding dot product between `Q` and `T`
 
     Parameters
     ----------
@@ -49,4 +74,4 @@ def _sliding_dot_product(Q, T):
     out : numpy.ndarray
         Sliding dot product between `Q` and `T`.
     """
-    return _njit_sliding_dot_product(Q, T)
+    return _convolve_sliding_dot_product(Q, T)

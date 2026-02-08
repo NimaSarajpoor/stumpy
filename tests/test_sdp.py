@@ -31,6 +31,13 @@ def test_njit_sliding_dot_product(Q, T):
 
 
 @pytest.mark.parametrize("Q, T", test_data)
+def test_convolve_sliding_dot_product(Q, T):
+    ref_mp = naive_rolling_window_dot_product(Q, T)
+    comp_mp = sdp._convolve_sliding_dot_product(Q, T)
+    npt.assert_almost_equal(ref_mp, comp_mp)
+
+
+@pytest.mark.parametrize("Q, T", test_data)
 def test_sliding_dot_product(Q, T):
     ref_mp = naive_rolling_window_dot_product(Q, T)
     comp_mp = sdp._sliding_dot_product(Q, T)
