@@ -35,14 +35,6 @@ except ModuleNotFoundError:
 TEST_THREADS_PER_BLOCK = 10
 
 
-def naive_rolling_window_dot_product(Q, T):
-    window = len(Q)
-    result = np.zeros(len(T) - window + 1)
-    for i in range(len(result)):
-        result[i] = np.dot(T[i : i + window], Q)
-    return result
-
-
 def naive_compute_mean_std_multidimensional(T, m):
     n = T.shape[1]
     nrows, ncols = T.shape
@@ -210,7 +202,7 @@ def test_check_window_size_excl_zone():
 
 @pytest.mark.parametrize("Q, T", test_data)
 def test_sliding_dot_product(Q, T):
-    ref_mp = naive_rolling_window_dot_product(Q, T)
+    ref_mp = naive.rolling_window_dot_product(Q, T)
     comp_mp = core.sliding_dot_product(Q, T)
     npt.assert_almost_equal(ref_mp, comp_mp)
 

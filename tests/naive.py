@@ -2379,3 +2379,11 @@ def mpdist_custom_func(P_ABBA, m, percentage, n_A, n_B):
         MPdist = P_ABBA[k]
 
     return MPdist
+
+
+def rolling_window_dot_product(Q, T):
+    window = len(Q)
+    result = np.zeros(len(T) - window + 1)
+    for i in range(len(result)):
+        result[i] = np.dot(T[i : i + window], Q)
+    return result
