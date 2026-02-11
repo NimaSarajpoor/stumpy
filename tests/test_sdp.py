@@ -37,6 +37,7 @@ from stumpy import sdp
 # 1000-2000. This allows us to test sliding_dot_product for
 # wider range of query lengths.
 
+# test cases 1-4
 test_inputs = [
     # Input format:
     # (
