@@ -1,3 +1,6 @@
+import inspect
+import warnings
+
 import naive
 import numpy as np
 import pytest
@@ -15,36 +18,24 @@ test_data = [
 ]
 
 
-@pytest.mark.parametrize("Q, T", test_data)
-def test_njit_sliding_dot_product(Q, T):
-    ref_mp = naive.rolling_window_dot_product(Q, T)
-    comp_mp = sdp._njit_sliding_dot_product(Q, T)
-    npt.assert_almost_equal(ref_mp, comp_mp)
+def get_sdp_function_names():
+    out = []
+    for func_name, func in inspect.getmembers(sdp, inspect.isfunction):
+        if func_name.endswith("sliding_dot_product"):
+            out.append(func_name)
 
-
-@pytest.mark.parametrize("Q, T", test_data)
-def test_convolve_sliding_dot_product(Q, T):
-    ref_mp = naive.rolling_window_dot_product(Q, T)
-    comp_mp = sdp._convolve_sliding_dot_product(Q, T)
-    npt.assert_almost_equal(ref_mp, comp_mp)
-
-
-@pytest.mark.parametrize("Q, T", test_data)
-def test_oaconvolve_sliding_dot_product(Q, T):
-    ref_mp = naive.rolling_window_dot_product(Q, T)
-    comp_mp = sdp._oaconvolve_sliding_dot_product(Q, T)
-    npt.assert_almost_equal(ref_mp, comp_mp)
-
-
-@pytest.mark.parametrize("Q, T", test_data)
-def test_pocketfft_sliding_dot_product(Q, T):
-    ref_mp = naive.rolling_window_dot_product(Q, T)
-    comp_mp = sdp._pocketfft_sliding_dot_product(Q, T)
-    npt.assert_almost_equal(ref_mp, comp_mp)
+    return out
 
 
 @pytest.mark.parametrize("Q, T", test_data)
 def test_sliding_dot_product(Q, T):
-    ref_mp = naive.rolling_window_dot_product(Q, T)
-    comp_mp = sdp._sliding_dot_product(Q, T)
-    npt.assert_almost_equal(ref_mp, comp_mp)
+    for func_name in get_sdp_function_names():
+        func = getattr(sdp, func_name)
+        try:
+            comp = func(Q, T)
+            ref = naive.rolling_window_dot_product(Q, T)
+            npt.assert_allclose(comp, ref)
+        except Exception as e:  # pragma: no cover
+            msg = f"Error in {func_name}, with n_Q={len(Q)} and n_T={len(T)}"
+            warnings.warn(msg)
+            raise e
