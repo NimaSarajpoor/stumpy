@@ -26,7 +26,7 @@ def _njit_sliding_dot_product(Q, T):
         Sliding dot product between `Q` and `T`.
     """
     m = len(Q)
-    l = T.shape[0] - m + 1
+    l = len(T) - m + 1
     out = np.empty(l)
     for i in range(l):
         result = 0.0
