@@ -23,11 +23,14 @@ def _njit_sliding_dot_product(Q, T):
     out : numpy.ndarray
         Sliding dot product between `Q` and `T`.
     """
-    m = Q.shape[0]
+    m = len(Q)
     l = T.shape[0] - m + 1
     out = np.empty(l)
     for i in range(l):
-        out[i] = np.dot(Q, T[i : i + m])
+        result = 0.0
+        for j in range(m):
+            result += Q[j] * T[i + j]
+        out[i] = result
 
     return out
 
