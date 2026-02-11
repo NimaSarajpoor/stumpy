@@ -52,12 +52,7 @@ def _convolve_sliding_dot_product(Q, T):
     output : numpy.ndarray
         Sliding dot product between `Q` and `T`.
     """
-    n = T.shape[0]
-    m = Q.shape[0]
-    Qr = np.flipud(Q)  # Reverse/flip Q
-    QT = convolve(Qr, T)
-
-    return QT.real[m - 1 : n]
+    return convolve(np.flipud(Q), T, mode="valid")
 
 
 def _sliding_dot_product(Q, T):
