@@ -55,6 +55,26 @@ def _convolve_sliding_dot_product(Q, T):
     return convolve(np.flipud(Q), T, mode="valid")
 
 
+def _oaconvolve_sliding_dot_product(Q, T):
+    """
+    Use scipy's oaconvolve to calculate the sliding dot product.
+
+    Parameters
+    ----------
+    Q : numpy.ndarray
+        Query array or subsequence
+
+    T : numpy.ndarray
+        Time series or sequence
+
+    Returns
+    -------
+    output : numpy.ndarray
+        Sliding dot product between `Q` and `T`.
+    """
+    return oaconvolve(np.ascontiguousarray(Q[::-1]), T, mode="valid")
+
+
 def _sliding_dot_product(Q, T):
     """
     Compute the sliding dot product between `Q` and `T`
