@@ -1,6 +1,8 @@
 import numpy as np
 from numba import njit
-from scipy.signal import convolve
+from scipy.fft import next_fast_len
+from scipy.fft._pocketfft.basic import c2r, r2c
+from scipy.signal import convolve, oaconvolve
 
 from . import config
 
