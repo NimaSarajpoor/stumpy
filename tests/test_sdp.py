@@ -122,7 +122,7 @@ def test_sdp(n_T, remainder, comparator):
                 comp = func(Q, T)
                 npt.assert_allclose(comp, ref)
             except Exception as e:  # pragma: no cover
-                msg = f"Error in {func_name}, with n_Q={len(Q)} and n_T={len(T)}"
+                msg = f"Error in {func_name}, with n_Q={n_Q} and n_T={n_T}"
                 warnings.warn(msg)
                 raise e
 
