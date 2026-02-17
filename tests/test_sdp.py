@@ -74,6 +74,9 @@ def get_sdp_function_names():
         if func_name.endswith("sliding_dot_product"):
             out.append(func_name)
 
+    if sdp.FFTW_IS_AVAILABLE:
+        out.append("_pyfftw_sliding_dot_product")
+
     return out
 
 
@@ -150,5 +153,27 @@ def test_sdp_power2():
             msg = f"Error in {func_name}, with q={q} and p={p}"
             warnings.warn(msg)
             raise e
+
+    return
+
+
+def test_pyfftw_sdp_max_n():
+    if not sdp.FFTW_IS_AVAILABLE:  # pragma: no cover
+        pytest.skip("Skipping Test pyFFTW Not Installed")
+
+    # When `len(T)` larger than `max_n` in pyfftw_sdp,
+    # the internal preallocated arrays should be resized.
+    # This test checks that functionality.
+    max_n = 2**10
+    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n)
+
+    # len(T) > max_n to trigger array resizing
+    T = np.random.rand(max_n + 1)
+    Q = np.random.rand(2**8)
+
+    comp = sdp_func(Q, T)
+    ref = naive.rolling_window_dot_product(Q, T)
+
+    np.testing.assert_allclose(comp, ref)
 
     return

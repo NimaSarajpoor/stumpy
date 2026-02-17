@@ -154,27 +154,58 @@ gen_ray_coveragerc()
     # Generate a .coveragerc_override file that excludes Ray functions and tests
     gen_coveragerc_boilerplate
     echo "    def .*_ray_*" >> .coveragerc_override
-    echo "    def ,*_ray\(*" >> .coveragerc_override
+    echo "    def .*_ray\(*" >> .coveragerc_override
     echo "    def ray_.*" >> .coveragerc_override
     echo "    def test_.*_ray*" >> .coveragerc_override
 }
 
-set_ray_coveragerc()
+check_fftw_pyfftw()
 {
-    # If `ray` command is not found then generate a .coveragerc_override file
-    if ! command -v ray &> /dev/null
+    if ! command -v fftw-wisdom &> /dev/null \
+    || ! python -c "import pyfftw" &> /dev/null;
     then
-        echo "Ray Not Installed"
-        gen_ray_coveragerc
-        fcoveragerc="--rcfile=.coveragerc_override"
+        echo "FFTW and/or pyFFTW Not Installed"
     else
-        echo "Ray Installed"
+        echo "FFTW and pyFFTW Installed"
+    fi
+}
+
+gen_pyfftw_coveragerc()
+{
+    gen_coveragerc_boilerplate
+    echo "    class .*PYFFTW*" >> .coveragerc_override
+    echo "    def test_.*pyfftw*" >> .coveragerc_override
+}
+
+set_coveragerc()
+{
+    fcoveragerc=""
+
+    if ! command -v ray &> /dev/null; 
+    then
+        echo "Ray not installed"
+        gen_ray_coveragerc
+    else
+        echo "Ray installed"
+    fi
+
+    if ! command -v fftw-wisdom &> /dev/null \
+    || ! python -c "import pyfftw" &> /dev/null;
+    then
+        echo "FFTW and/or pyFFTW not Installed"
+        gen_pyfftw_coveragerc
+    else
+        echo "FFTW and pyFFTW Installed"
+    fi
+
+    if [ -f .coveragerc_override ]; then
+        fcoveragerc="--rcfile=.coveragerc_override"
     fi
 }
 
 show_coverage_report()
 {
-    set_ray_coveragerc
+    set_coveragerc
     coverage report --show-missing --fail-under=100 --skip-covered --omit=fastmath.py,docstring.py,versions.py $fcoveragerc
     check_errs $?
 }
@@ -361,6 +392,7 @@ check_print
 check_pkg_imports
 check_naive
 check_ray
+check_fftw_pyfftw
 
 
 if [[ -z $NUMBA_DISABLE_JIT || $NUMBA_DISABLE_JIT -eq 0 ]]; then
