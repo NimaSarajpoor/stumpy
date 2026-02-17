@@ -74,7 +74,7 @@ def get_sdp_function_names():
         if func_name.endswith("sliding_dot_product"):
             out.append(func_name)
 
-    if sdp.FFTW_IS_AVAILABLE:
+    if sdp.FFTW_IS_AVAILABLE:  # pragma: no cover
         out.append("_pyfftw_sliding_dot_product")
 
     return out
