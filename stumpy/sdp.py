@@ -9,9 +9,9 @@ from . import config
 try:  # pragma: no cover
     import pyfftw
 
-    FFTW_IS_AVAILABLE = True
+    PYFFTW_IS_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    FFTW_IS_AVAILABLE = False
+    PYFFTW_IS_AVAILABLE = False
 
 
 @njit(fastmath=config.STUMPY_FASTMATH_TRUE)
@@ -121,7 +121,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
     A class to compute the sliding dot product using FFTW via pyfftw.
 
     This class uses FFTW (via pyfftw) to efficiently compute the sliding dot product
-    between a query sequence Q and a time series T. It preallocates arrays and caches
+    between a query sequence, Q, and a time series, T. It preallocates arrays and caches
     FFTW objects to optimize repeated computations with similar-sized inputs.
 
     Parameters
@@ -141,12 +141,12 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         Preallocated complex-valued array for FFTW computations.
 
     rfft_objects : dict
-        Cache of FFTW forward transform objects, keyed by
-        (next_fast_n, n_threads, planning_flag).
+        Cache of FFTW forward transform objects with
+        (next_fast_n, n_threads, planning_flag) as lookup keys.
 
     irfft_objects : dict
-        Cache of FFTW inverse transform objects, keyed by
-        (next_fast_n, n_threads, planning_flag).
+        Cache of FFTW inverse transform objects with
+        (next_fast_n, n_threads, planning_flag) as lookup keys.
 
     Notes
     -----
@@ -247,7 +247,9 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         key = (next_fast_n, n_threads, planning_flag)
 
         rfft_obj = self.rfft_objects.get(key, None)
-        if rfft_obj is None:
+        irfft_obj = self.irfft_objects.get(key, None)
+
+        if rfft_obj is None or irfft_obj is None:
             rfft_obj = pyfftw.FFTW(
                 input_array=real_arr,
                 output_array=complex_arr,
@@ -255,12 +257,6 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
                 flags=(planning_flag,),
                 threads=n_threads,
             )
-            self.rfft_objects[key] = rfft_obj
-        else:
-            rfft_obj.update_arrays(real_arr, complex_arr)
-
-        irfft_obj = self.irfft_objects.get(key, None)
-        if irfft_obj is None:
             irfft_obj = pyfftw.FFTW(
                 input_array=complex_arr,
                 output_array=real_arr,
@@ -268,33 +264,35 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
                 flags=(planning_flag, "FFTW_DESTROY_INPUT"),
                 threads=n_threads,
             )
+            self.rfft_objects[key] = rfft_obj
             self.irfft_objects[key] = irfft_obj
         else:
+            rfft_obj.update_arrays(real_arr, complex_arr)
             irfft_obj.update_arrays(complex_arr, real_arr)
 
-        # RFFT(T)
+        # Compute RFFT of T
         real_arr[:n] = T
         real_arr[n:] = 0.0
-        rfft_obj.execute()  # output is in complex_arr
-        complex_arr_T = complex_arr.copy()
+        rfft_obj.execute()  # output is stored in complex_arr
 
-        # RFFT(Q)
-        # Scale by 1/next_fast_n to account for
-        # FFTW's unnormalized inverse FFT via execute()
+        # need to make a copy since the array will be
+        # overwritten later during the RFFT(Q) step
+        rfft_of_T = complex_arr.copy()
+
+        # Compute RFFT of Q (reversed and scaled by 1/next_fast_n)
         np.multiply(Q[::-1], 1.0 / next_fast_n, out=real_arr[:m])
         real_arr[m:] = 0.0
-        rfft_obj.execute()  # output is in complex_arr
+        rfft_obj.execute()  # output is stored in complex_arr
+        rfft_of_Q = complex_arr
 
-        # RFFT(T) * RFFT(Q)
-        np.multiply(complex_arr, complex_arr_T, out=complex_arr)
-
-        # IRFFT (input is in complex_arr)
-        irfft_obj.execute()  # output is in real_arr
+        # Compute IRFFT of the element-wise product of the RFFTs
+        np.multiply(rfft_of_Q, rfft_of_T, out=complex_arr)
+        irfft_obj.execute()  # output is stored in real_arr
 
         return real_arr[m - 1 : n]
 
 
-if FFTW_IS_AVAILABLE:  # pragma: no cover
+if PYFFTW_IS_AVAILABLE:  # pragma: no cover
     _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**20)
 
 

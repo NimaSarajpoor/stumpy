@@ -74,7 +74,7 @@ def get_sdp_function_names():
         if func_name.endswith("sliding_dot_product"):
             out.append(func_name)
 
-    if sdp.FFTW_IS_AVAILABLE:  # pragma: no cover
+    if sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
         out.append("_pyfftw_sliding_dot_product")
 
     return out
@@ -158,7 +158,7 @@ def test_sdp_power2():
 
 
 def test_pyfftw_sdp_max_n():
-    if not sdp.FFTW_IS_AVAILABLE:  # pragma: no cover
+    if not sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
         pytest.skip("Skipping Test pyFFTW Not Installed")
 
     # When `len(T)` larger than `max_n` in pyfftw_sdp,
