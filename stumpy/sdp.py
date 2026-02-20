@@ -293,7 +293,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         rfft_obj.input_array[:n] = T
         rfft_obj.input_array[n:] = 0.0
         rfft_obj.execute()
-        rfft_of_T = rfft_obj.output_array.copy()
+        rfft_T = rfft_obj.output_array.copy()
 
         # Step 2
         # Compute RFFT of Q (reversed, scaled, and zero-padded)
@@ -302,11 +302,11 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         np.multiply(Q[::-1], 1.0 / next_fast_n, out=rfft_obj.input_array[:m])
         rfft_obj.input_array[m:] = 0.0
         rfft_obj.execute()
-        rfft_of_Q = rfft_obj.output_array
+        rfft_Q = rfft_obj.output_array
 
         # Step 3
         # Convert back to time domain by taking the inverse RFFT
-        np.multiply(rfft_of_T, rfft_of_Q, out=irfft_obj.input_array)
+        np.multiply(rfft_T, rfft_Q, out=irfft_obj.input_array)
         irfft_obj.execute()
 
         return irfft_obj.output_array[m - 1 : n]  # valid portion
