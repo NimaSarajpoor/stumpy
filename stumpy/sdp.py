@@ -267,29 +267,34 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
             self.rfft_objects[key] = rfft_obj
             self.irfft_objects[key] = irfft_obj
         else:
+            # Update the input and output arrays of the cached FFTW objects
+            # in case their original input and output arrays were reallocated
+            # in a previous call
             rfft_obj.update_arrays(real_arr, complex_arr)
             irfft_obj.update_arrays(complex_arr, real_arr)
 
         # Compute RFFT of T
         real_arr[:n] = T
         real_arr[n:] = 0.0
-        rfft_obj.execute()  # output is stored in complex_arr
+        rfft_obj.execute()
+        rfft_of_T = rfft_obj.output_array.copy()
+        # output array is stored in complex_arr, so make a copy
+        # to avoid losing it when it is overwritten when computing
+        # the RFFT of Q
 
-        # need to make a copy since the array will be
-        # overwritten later during the RFFT(Q) step
-        rfft_of_T = complex_arr.copy()
-
-        # Compute RFFT of Q (reversed and scaled by 1/next_fast_n)
+        # Compute RFFT of Q (reversed, scaled, and zero-padded)
+        # Note: scaling is needed since the thin wrapper `execute`
+        # is called which does not perform normalization
         np.multiply(Q[::-1], 1.0 / next_fast_n, out=real_arr[:m])
         real_arr[m:] = 0.0
-        rfft_obj.execute()  # output is stored in complex_arr
-        rfft_of_Q = complex_arr
+        rfft_obj.execute()
+        rfft_of_Q = rfft_obj.output_array
 
-        # Compute IRFFT of the element-wise product of the RFFTs
-        np.multiply(rfft_of_Q, rfft_of_T, out=complex_arr)
-        irfft_obj.execute()  # output is stored in real_arr
+        # Convert back to time domain by taking the inverse RFFT
+        np.multiply(rfft_of_T, rfft_of_Q, out=irfft_obj.input_array)
+        irfft_obj.execute()
 
-        return real_arr[m - 1 : n]
+        return irfft_obj.output_array[m - 1 : n]
 
 
 if PYFFTW_IS_AVAILABLE:  # pragma: no cover
