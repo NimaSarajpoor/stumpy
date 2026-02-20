@@ -282,28 +282,33 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
             rfft_obj.update_arrays(real_arr, complex_arr)
             irfft_obj.update_arrays(complex_arr, real_arr)
 
-        # Compute RFFT of T
-        real_arr[:n] = T
-        real_arr[n:] = 0.0
+        # Compute the circular convolution between T and Q[::-1]
+        # using FFT, and then take the relevant slice of the output
+
+        # Step 1
+        # Compute RFFT of T (zero-padded)
+        # Must make a copy of output to avoid losing it when the array is
+        # overwritten when computing the RFFT of Q in the next step
+        rfft_obj.input_array[:n] = T
+        rfft_obj.input_array[n:] = 0.0
         rfft_obj.execute()
         rfft_of_T = rfft_obj.output_array.copy()
-        # output array is stored in complex_arr, so make a copy
-        # to avoid losing it when it is overwritten when computing
-        # the RFFT of Q
 
+        # Step 2
         # Compute RFFT of Q (reversed, scaled, and zero-padded)
-        # Note: scaling is needed since the thin wrapper `execute`
-        # is called which does not perform normalization
-        np.multiply(Q[::-1], 1.0 / next_fast_n, out=real_arr[:m])
-        real_arr[m:] = 0.0
+        # Scaling is required because the thin wrapper `execute`
+        # that will be called below does not perform normalization
+        np.multiply(Q[::-1], 1.0 / next_fast_n, out=rfft_obj.input_array[:m])
+        rfft_obj.input_array[m:] = 0.0
         rfft_obj.execute()
         rfft_of_Q = rfft_obj.output_array
 
+        # Step 3
         # Convert back to time domain by taking the inverse RFFT
         np.multiply(rfft_of_T, rfft_of_Q, out=irfft_obj.input_array)
         irfft_obj.execute()
 
-        return irfft_obj.output_array[m - 1 : n]
+        return irfft_obj.output_array[m - 1 : n]  # valid portion
 
 
 if PYFFTW_IS_AVAILABLE:  # pragma: no cover
