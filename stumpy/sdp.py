@@ -148,10 +148,19 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         Cache of FFTW inverse transform objects with
         (next_fast_n, n_threads, planning_flag) as lookup keys.
 
+    Methods
+    -------
+    __call__(Q, T, n_threads=1, planning_flag="FFTW_ESTIMATE")
+        Compute the sliding dot product between `Q` and `T` using FFTW
+        via pyfftw, and cache FFTW objects if not already cached.
+
     Notes
     -----
     The class maintains internal caches of FFTW objects to avoid redundant planning
     operations when called multiple times with similar-sized inputs and parameters.
+    When `planning_flag=="FFTW_ESTIMATE"`, there will be no planning operation.
+    However, caching FFTW objects is still beneficial as the overhead of creating
+    those objects can be avoided in subsequent calls.
 
     Examples
     --------
