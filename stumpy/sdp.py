@@ -282,7 +282,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
             rfft_obj.update_arrays(real_arr, complex_arr)
             irfft_obj.update_arrays(complex_arr, real_arr)
 
-        # Compute the (circular) convolution between T and Q[::-1], 
+        # Compute the (circular) convolution between T and Q[::-1],
         # each zero-padded to length `next_fast_n` by performing
         # the following three steps:
 
