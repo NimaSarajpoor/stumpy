@@ -193,8 +193,8 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         None
         """
         # Preallocate arrays
-        self.real_arr = pyfftw.empty_aligned(max_n, dtype="float64")
-        self.complex_arr = pyfftw.empty_aligned(1 + (max_n // 2), dtype="complex128")
+        self.real_arr = pyfftw.empty_aligned(max_n, dtype="float32")
+        self.complex_arr = pyfftw.empty_aligned(1 + (max_n // 2), dtype="complex64")
 
         # Store FFTW objects, keyed by (next_fast_n, n_threads, planning_flag)
         self.rfft_objects = {}
