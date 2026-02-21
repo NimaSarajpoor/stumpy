@@ -177,3 +177,54 @@ def test_pyfftw_sdp_max_n():
     np.testing.assert_allclose(comp, ref)
 
     return
+
+
+def test_sdp_float32():
+    n_T = 16
+    n_Q = 8
+
+    T = np.random.rand(n_T).astype(np.float32)
+    Q = np.random.rand(n_Q).astype(np.float32)
+
+    pyfftw_sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(
+        n_T, real_dtype=np.float32, complex_dtype=np.complex64
+    )
+    pyfftw_sdp_func(Q, T)
+
+    assert True
+
+    return
+
+
+def test_sdp_float64():
+    n_T = 16
+    n_Q = 8
+
+    T = np.random.rand(n_T).astype(np.float64)
+    Q = np.random.rand(n_Q).astype(np.float64)
+
+    pyfftw_sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(
+        n_T, real_dtype=np.float64, complex_dtype=np.complex128
+    )
+    pyfftw_sdp_func(Q, T)
+
+    assert True
+
+    return
+
+
+def test_sdp_long():
+    n_T = 16
+    n_Q = 8
+
+    T = np.random.rand(n_T).astype(np.longdouble)
+    Q = np.random.rand(n_Q).astype(np.longdouble)
+
+    pyfftw_sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(
+        n_T, real_dtype=np.longdouble, complex_dtype=np.clongdouble
+    )
+    pyfftw_sdp_func(Q, T)
+
+    assert True
+
+    return
