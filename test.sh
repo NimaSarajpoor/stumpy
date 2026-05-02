@@ -161,12 +161,11 @@ gen_ray_coveragerc()
 
 check_fftw_pyfftw()
 {
-    if ! command -v fftw-wisdom &> /dev/null \
-    || ! python -c "import pyfftw" &> /dev/null;
+    if ! python -c "import pyfftw" &> /dev/null;
     then
-        echo "FFTW and/or pyFFTW Not Installed"
+        echo "pyFFTW cannot be imported."
     else
-        echo "FFTW and pyFFTW Installed"
+        echo "pyFFTW can be imported!"
     fi
 }
 
