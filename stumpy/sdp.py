@@ -176,7 +176,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
     `pyfftw documentation <https://pyfftw.readthedocs.io/>`__
     """
 
-    def __init__(self, max_n=2**20):
+    def __init__(self, max_n=2**20, real_dtype="float64"):
         """
         Initialize the `_PYFFTW_SLIDING_DOT_PRODUCT` object, which can be called
         to compute the sliding dot product using FFTW via pyfftw.
@@ -188,13 +188,28 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
             real-valued array. A complex-valued array of size `1 + (max_n // 2)`
             will also be preallocated.
 
+        real_dtype : str, default="float64"
+            The real data type to use for the preallocated arrays. Must be either
+            "float64" or "longdouble". The complex data type will be set to
+            "complex128" or "clongdouble" respectively.
+
         Returns
         -------
         None
         """
+        REAL_TO_COMPLEX_MAP = {
+            "float64": "complex128",
+            "longdouble": "clongdouble",
+        }
+        if real_dtype not in ["float64", "longdouble"]:
+            raise ValueError(
+                f"Invalid real_dtype: {real_dtype}. Must be 'float64' or 'longdouble'."
+            )
+        complex_dtype = REAL_TO_COMPLEX_MAP[real_dtype]
+
         # Preallocate arrays
-        self.real_arr = pyfftw.empty_aligned(max_n, dtype="float64")
-        self.complex_arr = pyfftw.empty_aligned(1 + (max_n // 2), dtype="complex128")
+        self.real_arr = pyfftw.empty_aligned(max_n, dtype=real_dtype)
+        self.complex_arr = pyfftw.empty_aligned(1 + (max_n // 2), dtype=complex_dtype)
 
         # Store FFTW objects, keyed by (next_fast_n, n_threads, planning_flag)
         self.rfft_objects = {}
@@ -244,9 +259,9 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
 
         # Update preallocated arrays if needed
         if next_fast_n > len(self.real_arr):
-            self.real_arr = pyfftw.empty_aligned(next_fast_n, dtype="float64")
+            self.real_arr = pyfftw.empty_aligned(next_fast_n, dtype=self.real_arr.dtype)
             self.complex_arr = pyfftw.empty_aligned(
-                1 + (next_fast_n // 2), dtype="complex128"
+                1 + (next_fast_n // 2), dtype=self.complex_arr.dtype
             )
 
         real_arr = self.real_arr[:next_fast_n]

@@ -177,3 +177,62 @@ def test_pyfftw_sdp_max_n():
     np.testing.assert_allclose(comp, ref)
 
     return
+
+
+def test_pyfftw_sdp_longdoube():
+    if not sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
+        pytest.skip("Skipping Test pyFFTW Not Installed")
+
+    # This test checks that the pyfftw_sdp can be initialized with longdouble data type
+    max_n = 2**10
+    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n, real_dtype="longdouble")
+
+    T = np.random.rand(max_n)
+    Q = np.random.rand(2**8)
+
+    comp = sdp_func(Q, T)
+    ref = naive.rolling_window_dot_product(Q, T)
+
+    np.testing.assert_allclose(comp, ref)
+
+    return
+
+
+def test_pyfftw_sdp_multithreaded():
+    if not sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
+        pytest.skip("Skipping Test pyFFTW Not Installed")
+
+    # This test checks that the pyfftw_sdp can be initialized
+    # with multiple threads
+    max_n = 2**10
+    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n)
+
+    T = np.random.rand(max_n)
+    Q = np.random.rand(2**8)
+
+    comp = sdp_func(Q, T, n_threads=2)
+    ref = naive.rolling_window_dot_product(Q, T)
+
+    np.testing.assert_allclose(comp, ref)
+
+    return
+
+
+def test_pyfftw_sdp_multithreaded_longdouble():
+    if not sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
+        pytest.skip("Skipping Test pyFFTW Not Installed")
+
+    # This test checks that the pyfftw_sdp can be initialized
+    # with multiple threads and longdouble data type
+    max_n = 2**10
+    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n, real_dtype="longdouble")
+
+    T = np.random.rand(max_n)
+    Q = np.random.rand(2**8)
+
+    comp = sdp_func(Q, T, n_threads=2)
+    ref = naive.rolling_window_dot_product(Q, T)
+
+    np.testing.assert_allclose(comp, ref)
+
+    return
