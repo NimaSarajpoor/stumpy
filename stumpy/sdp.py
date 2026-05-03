@@ -191,7 +191,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         real_dtype : str, default="float64"
             The real data type to use for the preallocated arrays. Must be either
             "float64" or "longdouble". The complex data type will be set to
-            "complex128" or "clongdouble" respectively.
+            "complex128" or "clongdouble", respectively.
 
         Returns
         -------

@@ -163,9 +163,9 @@ check_fftw_pyfftw()
 {
     if ! python -c "import pyfftw" &> /dev/null;
     then
-        echo "pyFFTW cannot be imported."
+        echo "pyFFTW cannot be imported"
     else
-        echo "pyFFTW can be imported!"
+        echo "pyFFTW was successfully imported"
     fi
 }
 
