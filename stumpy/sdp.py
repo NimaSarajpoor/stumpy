@@ -201,7 +201,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
             "float64": "complex128",
             "longdouble": "clongdouble",
         }
-        if real_dtype not in ["float64", "longdouble"]:
+        if real_dtype not in ["float64", "longdouble"]:  # pragma: no cover
             raise ValueError(
                 f"Invalid real_dtype: {real_dtype}. Must be 'float64' or 'longdouble'."
             )
