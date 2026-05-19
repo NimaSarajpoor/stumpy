@@ -70,11 +70,13 @@ test_inputs = [
 
 def get_sdp_function_names():
     out = []
-    for func_name, func in inspect.getmembers(sdp, inspect.isfunction):
+    for func_name, _ in inspect.getmembers(sdp, inspect.isfunction):
         if func_name.endswith("sliding_dot_product"):
             out.append(func_name)
 
     if sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
+        callable_obj = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**20)
+        setattr(sdp, "_pyfftw_sliding_dot_product", callable_obj)
         out.append("_pyfftw_sliding_dot_product")
 
     return out

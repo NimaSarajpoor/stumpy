@@ -327,10 +327,6 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         return irfft_obj.output_array[m - 1 : n]  # valid portion
 
 
-if PYFFTW_IS_AVAILABLE:  # pragma: no cover
-    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**20)
-
-
 def _sliding_dot_product(Q, T):
     """
     Compute the sliding dot product between `Q` and `T`
