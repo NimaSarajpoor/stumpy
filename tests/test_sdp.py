@@ -70,14 +70,9 @@ test_inputs = [
 
 def get_sdp_function_names():
     out = []
-    for func_name, _ in inspect.getmembers(sdp, inspect.isfunction):
+    for func_name, _ in inspect.getmembers(sdp, callable):
         if func_name.endswith("sliding_dot_product"):
             out.append(func_name)
-
-    if sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
-        callable_obj = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**20)
-        setattr(sdp, "_pyfftw_sliding_dot_product", callable_obj)
-        out.append("_pyfftw_sliding_dot_product")
 
     return out
 
@@ -163,17 +158,16 @@ def test_pyfftw_sdp_max_n():
     if not sdp.PYFFTW_IS_AVAILABLE:  # pragma: no cover
         pytest.skip("Skipping Test pyFFTW Not Installed")
 
-    # When `len(T)` larger than `max_n` in pyfftw_sdp,
+    # When `len(T)` larger than `real_arr` in pyfftw_sdp,
     # the internal preallocated arrays should be resized.
     # This test checks that functionality.
-    max_n = 2**10
-    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n)
 
-    # len(T) > max_n to trigger array resizing
-    T = np.random.rand(max_n + 1)
-    Q = np.random.rand(2**8)
+    # len(T) > real_arr to trigger array resizing
+    real_arr_len = len(sdp._pyfftw_sliding_dot_product.real_arr)
+    T = np.random.rand(real_arr_len + 1)
+    Q = np.random.rand(2**2)
 
-    comp = sdp_func(Q, T)
+    comp = sdp._pyfftw_sliding_dot_product(Q, T)
     ref = naive.rolling_window_dot_product(Q, T)
 
     np.testing.assert_allclose(comp, ref)
@@ -206,13 +200,10 @@ def test_pyfftw_sdp_multithreaded():
 
     # This test checks that the pyfftw_sdp can be initialized
     # with multiple threads
-    max_n = 2**10
-    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n)
+    T = np.random.rand(2**5)
+    Q = np.random.rand(2**4)
 
-    T = np.random.rand(max_n)
-    Q = np.random.rand(2**8)
-
-    comp = sdp_func(Q, T, n_threads=2)
+    comp = sdp._pyfftw_sliding_dot_product(Q, T, n_threads=2)
     ref = naive.rolling_window_dot_product(Q, T)
 
     np.testing.assert_allclose(comp, ref)
