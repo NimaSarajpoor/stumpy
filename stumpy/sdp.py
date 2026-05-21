@@ -328,7 +328,9 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
 
 
 if PYFFTW_IS_AVAILABLE:  # pragma: no cover
-    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT(max_n=2**20)
+    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT(
+        max_n=2**20, real_dtype="float64"
+    )
 
 
 def _sliding_dot_product(Q, T):
