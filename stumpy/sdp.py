@@ -116,11 +116,11 @@ def _pocketfft_sliding_dot_product(Q, T):
     return c2r(False, np.multiply(fft_2d[0], fft_2d[1]), n=next_fast_n)[m - 1 : n]
 
 
-class _PYFFTW_SLIDING_DOT_PRODUCT:
+def _make_pyfftw_sliding_dot_product(max_n=2**20, real_dtype="float64"):
     """
-    A class to compute the sliding dot product using FFTW via pyfftw.
+    A closure to compute the sliding dot product using FFTW via pyfftw.
 
-    This class uses FFTW (via pyfftw) to efficiently compute the sliding dot product
+    This closure uses FFTW (via pyfftw) to efficiently compute the sliding dot product
     between a query sequence, Q, and a time series, T. It preallocates arrays and caches
     FFTW objects to optimize repeated computations with similar-sized inputs.
 
@@ -128,96 +128,55 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
     ----------
     max_n : int, default=2**20
         Maximum length to preallocate arrays for. This will be the size of the
-        real-valued array. A complex-valued array of size `1 + (max_n // 2)`
+        real-valued array. A complex-valued array of size 1 + (max_n // 2)
         will also be preallocated. If inputs exceed this size, arrays will be
         reallocated to accommodate larger sizes.
 
-    Attributes
-    ----------
-    real_arr : pyfftw.empty_aligned
-        Preallocated real-valued array for FFTW computations.
+    real_dtype : str, default="float64"
+        The real data type to use for the preallocated arrays. Must be either
+        "float64" or "longdouble". The complex data type will be set to
+        "complex128" or "clongdouble", respectively.
 
-    complex_arr : pyfftw.empty_aligned
-        Preallocated complex-valued array for FFTW computations.
-
-    rfft_objects : dict
-        Cache of FFTW forward transform objects with
-        (next_fast_n, n_threads, planning_flag) as lookup keys.
-
-    irfft_objects : dict
-        Cache of FFTW inverse transform objects with
-        (next_fast_n, n_threads, planning_flag) as lookup keys.
-
-    Methods
+    Returns
     -------
-    __call__(Q, T, n_threads=1, planning_flag="FFTW_ESTIMATE")
-        Compute the sliding dot product between `Q` and `T` using FFTW
-        via pyfftw, and cache FFTW objects if not already cached.
+    sliding_dot_product : callable
+        A callable that computes the sliding dot product between Q and T using FFTW
+        via pyfftw, and caches FFTW objects if not already cached.
 
     Notes
     -----
-    The class maintains internal caches of FFTW objects to avoid redundant planning
+    The closure maintains internal caches of FFTW objects to avoid redundant planning
     operations when called multiple times with similar-sized inputs and parameters.
-    When `planning_flag=="FFTW_ESTIMATE"`, there will be no planning operation.
+    When planning_flag == "FFTW_ESTIMATE", there will be no planning operation.
     However, caching FFTW objects is still beneficial as the overhead of creating
     those objects can be avoided in subsequent calls.
 
-    Examples
-    --------
-    >>> sdp_obj = _PYFFTW_SLIDING_DOT_PRODUCT(max_n=1000)
-    >>> Q = np.array([1, 2, 3])
-    >>> T = np.array([4, 5, 6, 7, 8])
-    >>> result = sdp_obj(Q, T)
-
     References
     ----------
-    `FFTW documentation <http://www.fftw.org/>`__
-
-    `pyfftw documentation <https://pyfftw.readthedocs.io/>`__
+    FFTW documentation: http://www.fftw.org/
+    pyfftw documentation: https://pyfftw.readthedocs.io/
     """
+    REAL_TO_COMPLEX_MAP = {
+        "float64": "complex128",
+        "longdouble": "clongdouble",
+    }
+    if real_dtype not in ["float64", "longdouble"]:  # pragma: no cover
+        raise ValueError(
+            f"Invalid real_dtype: {real_dtype}. Must be 'float64' or 'longdouble'."
+        )
+    complex_dtype = REAL_TO_COMPLEX_MAP[real_dtype]
 
-    def __init__(self, max_n=2**20, real_dtype="float64"):
+    # Preallocate arrays
+    real_arr = pyfftw.empty_aligned(max_n, dtype=real_dtype)
+    complex_arr = pyfftw.empty_aligned(1 + (max_n // 2), dtype=complex_dtype)
+
+    # Store FFTW objects, keyed by (next_fast_n, n_threads, planning_flag)
+    rfft_objects = {}
+    irfft_objects = {}
+
+    def sliding_dot_product(Q, T, n_threads=1, planning_flag="FFTW_ESTIMATE"):
         """
-        Initialize the `_PYFFTW_SLIDING_DOT_PRODUCT` object, which can be called
-        to compute the sliding dot product using FFTW via pyfftw.
-
-        Parameters
-        ----------
-        max_n : int, default=2**20
-            Maximum length to preallocate arrays for. This will be the size of the
-            real-valued array. A complex-valued array of size `1 + (max_n // 2)`
-            will also be preallocated.
-
-        real_dtype : str, default="float64"
-            The real data type to use for the preallocated arrays. Must be either
-            "float64" or "longdouble". The complex data type will be set to
-            "complex128" or "clongdouble", respectively.
-
-        Returns
-        -------
-        None
-        """
-        REAL_TO_COMPLEX_MAP = {
-            "float64": "complex128",
-            "longdouble": "clongdouble",
-        }
-        if real_dtype not in ["float64", "longdouble"]:  # pragma: no cover
-            raise ValueError(
-                f"Invalid real_dtype: {real_dtype}. Must be 'float64' or 'longdouble'."
-            )
-        complex_dtype = REAL_TO_COMPLEX_MAP[real_dtype]
-
-        # Preallocate arrays
-        self.real_arr = pyfftw.empty_aligned(max_n, dtype=real_dtype)
-        self.complex_arr = pyfftw.empty_aligned(1 + (max_n // 2), dtype=complex_dtype)
-
-        # Store FFTW objects, keyed by (next_fast_n, n_threads, planning_flag)
-        self.rfft_objects = {}
-        self.irfft_objects = {}
-
-    def __call__(self, Q, T, n_threads=1, planning_flag="FFTW_ESTIMATE"):
-        """
-        Compute the sliding dot product between `Q` and `T` using FFTW via pyfftw,
+        Compute the sliding dot product between Q and T using FFTW via pyfftw,
         and cache FFTW objects if not already cached.
 
         Parameters
@@ -242,7 +201,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         Returns
         -------
         out : numpy.ndarray
-            Sliding dot product between `Q` and `T`.
+            Sliding dot product between Q and T.
 
         Notes
         -----
@@ -253,52 +212,54 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
         This implementation is inspired by the answer on StackOverflow:
         https://stackoverflow.com/a/30615425/2955541
         """
+        nonlocal real_arr, complex_arr
+
         m = Q.shape[0]
         n = T.shape[0]
         next_fast_n = pyfftw.next_fast_len(n)
 
         # Update preallocated arrays if needed
-        if next_fast_n > len(self.real_arr):
-            self.real_arr = pyfftw.empty_aligned(next_fast_n, dtype=self.real_arr.dtype)
-            self.complex_arr = pyfftw.empty_aligned(
-                1 + (next_fast_n // 2), dtype=self.complex_arr.dtype
+        if next_fast_n > len(real_arr):
+            real_arr = pyfftw.empty_aligned(next_fast_n, dtype=real_arr.dtype)
+            complex_arr = pyfftw.empty_aligned(
+                1 + (next_fast_n // 2), dtype=complex_arr.dtype
             )
 
-        real_arr = self.real_arr[:next_fast_n]
-        complex_arr = self.complex_arr[: 1 + (next_fast_n // 2)]
+        real_view = real_arr[:next_fast_n]
+        complex_view = complex_arr[: 1 + (next_fast_n // 2)]
 
         # Get or create FFTW objects
         key = (next_fast_n, n_threads, planning_flag)
 
-        rfft_obj = self.rfft_objects.get(key, None)
-        irfft_obj = self.irfft_objects.get(key, None)
+        rfft_obj = rfft_objects.get(key, None)
+        irfft_obj = irfft_objects.get(key, None)
 
         if rfft_obj is None or irfft_obj is None:
             rfft_obj = pyfftw.FFTW(
-                input_array=real_arr,
-                output_array=complex_arr,
+                input_array=real_view,
+                output_array=complex_view,
                 direction="FFTW_FORWARD",
                 flags=(planning_flag,),
                 threads=n_threads,
             )
             irfft_obj = pyfftw.FFTW(
-                input_array=complex_arr,
-                output_array=real_arr,
+                input_array=complex_view,
+                output_array=real_view,
                 direction="FFTW_BACKWARD",
                 flags=(planning_flag, "FFTW_DESTROY_INPUT"),
                 threads=n_threads,
             )
-            self.rfft_objects[key] = rfft_obj
-            self.irfft_objects[key] = irfft_obj
+            rfft_objects[key] = rfft_obj
+            irfft_objects[key] = irfft_obj
         else:
             # Update the input and output arrays of the cached FFTW objects
             # in case their original input and output arrays were reallocated
             # in a previous call
-            rfft_obj.update_arrays(real_arr, complex_arr)
-            irfft_obj.update_arrays(complex_arr, real_arr)
+            rfft_obj.update_arrays(real_view, complex_view)
+            irfft_obj.update_arrays(complex_view, real_view)
 
         # Compute the (circular) convolution between T and Q[::-1],
-        # each zero-padded to length `next_fast_n` by performing
+        # each zero-padded to length next_fast_n by performing
         # the following three steps:
 
         # Step 1
@@ -312,7 +273,7 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
 
         # Step 2
         # Compute RFFT of Q (reversed, scaled, and zero-padded)
-        # Scaling is required because the thin wrapper `execute`
+        # Scaling is required because the thin wrapper execute
         # that will be called below does not perform normalization
         np.multiply(Q[::-1], 1.0 / next_fast_n, out=rfft_obj.input_array[:m])
         rfft_obj.input_array[m:] = 0.0
@@ -326,9 +287,11 @@ class _PYFFTW_SLIDING_DOT_PRODUCT:
 
         return irfft_obj.output_array[m - 1 : n]  # valid portion
 
+    return sliding_dot_product
+
 
 if PYFFTW_IS_AVAILABLE:  # pragma: no cover
-    _pyfftw_sliding_dot_product = _PYFFTW_SLIDING_DOT_PRODUCT(
+    _pyfftw_sliding_dot_product = _make_pyfftw_sliding_dot_product(
         max_n=2**20, real_dtype="float64"
     )
 

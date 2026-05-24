@@ -70,8 +70,10 @@ test_inputs = [
 
 def get_sdp_function_names():
     out = []
-    for func_name, _ in inspect.getmembers(sdp, callable):
-        if func_name.endswith("sliding_dot_product"):
+    for func_name, func in inspect.getmembers(sdp, callable):
+        if func_name.endswith("sliding_dot_product") and inspect.signature(
+            func
+        ).parameters.keys() >= {"Q", "T"}:
             out.append(func_name)
 
     return out
@@ -162,12 +164,16 @@ def test_pyfftw_sdp_max_n():
     # the internal preallocated arrays should be resized.
     # This test checks that functionality.
 
-    # len(T) > real_arr to trigger array resizing
-    real_arr_len = len(sdp._pyfftw_sliding_dot_product.real_arr)
-    T = np.random.rand(real_arr_len + 1)
+    max_n = 2**10
+    _pyfftw_sliding_dot_product = sdp._make_pyfftw_sliding_dot_product(
+        max_n=max_n, real_dtype="float64"
+    )
+
+    # len(T) > max_n to trigger array resizing
+    T = np.random.rand(max_n + 1)
     Q = np.random.rand(2**2)
 
-    comp = sdp._pyfftw_sliding_dot_product(Q, T)
+    comp = _pyfftw_sliding_dot_product(Q, T)
     ref = naive.rolling_window_dot_product(Q, T)
 
     np.testing.assert_allclose(comp, ref)
@@ -181,7 +187,7 @@ def test_pyfftw_sdp_longdoube():
 
     # This test checks that the pyfftw_sdp can be initialized with longdouble data type
     max_n = 2**10
-    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n, real_dtype="longdouble")
+    sdp_func = sdp._make_pyfftw_sliding_dot_product(max_n, real_dtype="longdouble")
 
     T = np.random.rand(max_n)
     Q = np.random.rand(2**8)
@@ -218,7 +224,7 @@ def test_pyfftw_sdp_multithreaded_longdouble():
     # This test checks that the pyfftw_sdp can be initialized
     # with multiple threads and longdouble data type
     max_n = 2**10
-    sdp_func = sdp._PYFFTW_SLIDING_DOT_PRODUCT(max_n, real_dtype="longdouble")
+    sdp_func = sdp._make_pyfftw_sliding_dot_product(max_n, real_dtype="longdouble")
 
     T = np.random.rand(max_n)
     Q = np.random.rand(2**8)
