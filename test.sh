@@ -172,8 +172,8 @@ check_fftw_pyfftw()
 gen_pyfftw_coveragerc()
 {
     gen_coveragerc_boilerplate
-    echo "    class .*PYFFTW*" >> .coveragerc_override
-    echo "    def test_.*pyfftw*" >> .coveragerc_override
+    echo "    def .*pyfftw.*" >> .coveragerc_override
+    echo "    def test_.*pyfftw.*" >> .coveragerc_override
 }
 
 set_coveragerc()
